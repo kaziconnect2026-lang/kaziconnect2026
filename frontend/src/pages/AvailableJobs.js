@@ -6,14 +6,13 @@ import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card"
 import { Badge } from "../components/ui/badge";
 import { Textarea } from "../components/ui/textarea";
 import { Label } from "../components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "../components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
 import { useAuth } from "../context/AuthContext";
 import axios from "axios";
 import { toast } from "sonner";
 import { 
-  ArrowLeft, Search, MapPin, DollarSign, Clock, User, 
-  Briefcase, Send, CheckCircle2, Filter, Sparkles
+  ArrowLeft, MapPin, DollarSign, Clock, User, 
+  Briefcase, Send, CheckCircle2, Sparkles, Loader2, Wand2
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -23,12 +22,12 @@ export default function AvailableJobs() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [jobs, setJobs] = useState([]);
-  const [categories, setCategories] = useState([]);
+  const [profession, setProfession] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [selectedCategory, setSelectedCategory] = useState("");
   const [selectedJob, setSelectedJob] = useState(null);
   const [bidOpen, setBidOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [loadingAiSuggestion, setLoadingAiSuggestion] = useState(false);
   const [bidData, setBidData] = useState({
     proposed_price: "",
     message: "",
@@ -36,35 +35,54 @@ export default function AvailableJobs() {
   });
 
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const [jobsRes, catsRes] = await Promise.all([
-          axios.get(`${API}/jobs/available`),
-          axios.get(`${API}/categories`)
-        ]);
-        setJobs(jobsRes.data);
-        setCategories(catsRes.data);
-      } catch (error) {
-        console.error("Failed to fetch data:", error);
-        toast.error("Failed to load jobs");
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchData();
+    fetchJobs();
   }, []);
 
-  const handleCategoryChange = async (value) => {
-    setSelectedCategory(value === "all" ? "" : value);
+  const fetchJobs = async () => {
     setLoading(true);
     try {
-      const params = value && value !== "all" ? `?category=${value}` : "";
-      const response = await axios.get(`${API}/jobs/available${params}`);
-      setJobs(response.data);
+      const response = await axios.get(`${API}/jobs/available`);
+      // Handle new response format
+      if (response.data.jobs) {
+        setJobs(response.data.jobs);
+        setProfession(response.data.profession);
+      } else {
+        // Fallback for old format
+        setJobs(Array.isArray(response.data) ? response.data : []);
+      }
     } catch (error) {
-      console.error("Failed to filter jobs:", error);
+      console.error("Failed to fetch jobs:", error);
+      toast.error("Failed to load jobs");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleGetAiSuggestion = async (job) => {
+    setLoadingAiSuggestion(true);
+    try {
+      const response = await axios.post(`${API}/bids/ai-suggest?job_id=${job.id}`);
+      setBidData({
+        proposed_price: response.data.suggested_price?.toString() || job.budget.toString(),
+        message: response.data.suggested_message || "",
+        estimated_hours: response.data.suggested_hours?.toString() || ""
+      });
+      if (response.data.ai_powered) {
+        toast.success("AI suggestion generated!");
+      } else {
+        toast.info("Generated basic suggestion");
+      }
+    } catch (error) {
+      console.error("Failed to get AI suggestion:", error);
+      toast.error("Failed to get AI suggestion");
+      // Set default values
+      setBidData({
+        proposed_price: job.budget.toString(),
+        message: "",
+        estimated_hours: ""
+      });
+    } finally {
+      setLoadingAiSuggestion(false);
     }
   };
 
@@ -86,9 +104,7 @@ export default function AvailableJobs() {
       setBidData({ proposed_price: "", message: "", estimated_hours: "" });
       
       // Refresh jobs list
-      const params = selectedCategory ? `?category=${selectedCategory}` : "";
-      const response = await axios.get(`${API}/jobs/available${params}`);
-      setJobs(response.data);
+      fetchJobs();
     } catch (error) {
       toast.error(error.response?.data?.detail || "Failed to submit bid");
     } finally {
@@ -127,35 +143,35 @@ export default function AvailableJobs() {
       </header>
 
       <main className="max-w-4xl mx-auto px-4 py-6">
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-4 mb-6">
-          <div className="flex items-center gap-2">
-            <Filter className="w-4 h-4 text-muted-foreground" />
-            <span className="text-sm font-medium">Filter:</span>
-          </div>
-          <Select value={selectedCategory || "all"} onValueChange={handleCategoryChange}>
-            <SelectTrigger className="w-48 rounded-xl" data-testid="category-filter">
-              <SelectValue placeholder="All Categories" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Categories</SelectItem>
-              {categories.map((cat) => (
-                <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Stats */}
+        {/* Category Info */}
         <div className="flex items-center gap-2 mb-6 p-4 bg-primary/5 rounded-xl">
           <Briefcase className="w-5 h-5 text-primary" />
-          <span className="font-medium">{jobs.length} jobs available</span>
-          {selectedCategory && (
-            <Badge variant="outline" className="ml-2">
-              {categories.find(c => c.id === selectedCategory)?.name}
+          <span className="font-medium">
+            {jobs.length} {profession ? `${profession}` : ""} job{jobs.length !== 1 ? 's' : ''} available
+          </span>
+          {profession && (
+            <Badge className="ml-2 bg-primary/20 text-primary">
+              Filtered by your profession
             </Badge>
           )}
         </div>
+
+        {!profession && jobs.length === 0 && (
+          <Card className="border-border mb-6 bg-yellow-50">
+            <CardContent className="p-4">
+              <p className="text-yellow-800 text-sm">
+                <strong>Tip:</strong> Complete your profile with your profession to see jobs matching your skills.
+              </p>
+              <Button 
+                variant="outline" 
+                className="mt-2"
+                onClick={() => navigate("/create-profile")}
+              >
+                Complete Profile
+              </Button>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Jobs List */}
         {jobs.length > 0 ? (
@@ -228,12 +244,15 @@ export default function AvailableJobs() {
           <div className="text-center py-16">
             <Briefcase className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
             <h3 className="font-heading text-xl font-semibold mb-2">No jobs available</h3>
-            <p className="text-muted-foreground mb-6">
-              Check back later for new job postings in your area
+            <p className="text-muted-foreground mb-2">
+              {profession 
+                ? `No ${profession.toLowerCase()} jobs available right now.`
+                : "Complete your profile to see jobs matching your skills."
+              }
             </p>
-            <Button variant="outline" onClick={() => handleCategoryChange("all")} className="rounded-full">
-              Clear Filters
-            </Button>
+            <p className="text-sm text-muted-foreground">
+              Check back later for new job postings!
+            </p>
           </div>
         )}
       </main>
@@ -250,6 +269,28 @@ export default function AvailableJobs() {
                 <h4 className="font-medium mb-1">{selectedJob.title}</h4>
                 <p className="text-sm text-muted-foreground">Client Budget: KSh {selectedJob.budget.toLocaleString()}</p>
               </div>
+              
+              {/* AI Suggestion Button */}
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full gap-2"
+                onClick={() => handleGetAiSuggestion(selectedJob)}
+                disabled={loadingAiSuggestion}
+                data-testid="ai-suggest-btn"
+              >
+                {loadingAiSuggestion ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Generating suggestion...
+                  </>
+                ) : (
+                  <>
+                    <Wand2 className="w-4 h-4" />
+                    Get AI Bid Suggestion
+                  </>
+                )}
+              </Button>
               
               <div className="space-y-2">
                 <Label>Your Proposed Price (KSh)</Label>
@@ -291,7 +332,7 @@ export default function AvailableJobs() {
               <div className="p-3 bg-primary/5 rounded-xl text-sm">
                 <p className="flex items-center gap-2">
                   <Sparkles className="w-4 h-4 text-primary" />
-                  Stand out with a personalized message!
+                  Tip: Use AI suggestion for a competitive bid!
                 </p>
               </div>
               
