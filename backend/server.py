@@ -275,6 +275,12 @@ PROFESSIONAL_CATEGORIES = [
     {"id": "cleaner", "name": "Cleaner", "icon": "sparkles", "image": "https://images.unsplash.com/photo-1581578731548-c64695cc6952?crop=entropy&cs=srgb&fm=jpg&q=85"},
 ]
 
+# ============= ROOT ENDPOINT =============
+# Add your routes to the router instead of directly to app
+@api_router.get("/")
+async def root():
+    return {"message": "Welcome to Kazi Links API"}
+
 # ============= AUTH ENDPOINTS =============
 @api_router.post("/auth/register", response_model=TokenResponse)
 async def register(user_data: UserCreate):
