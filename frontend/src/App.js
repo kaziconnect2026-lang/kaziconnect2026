@@ -12,6 +12,9 @@ import ProfessionalProfile from "./pages/ProfessionalProfile";
 import PostJob from "./pages/PostJob";
 import CreateProfile from "./pages/CreateProfile";
 import Bookings from "./pages/Bookings";
+import AvailableJobs from "./pages/AvailableJobs";
+import MyBids from "./pages/MyBids";
+import JobBids from "./pages/JobBids";
 import "./App.css";
 
 // Protected Route Component
