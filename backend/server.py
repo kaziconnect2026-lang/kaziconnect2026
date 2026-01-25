@@ -656,6 +656,103 @@ async def get_my_bids(user = Depends(get_current_user)):
     
     return bids
 
+@api_router.post("/bids/ai-suggest")
+async def get_ai_bid_suggestion(job_id: str, user = Depends(get_current_user)):
+    """Get AI-powered bid suggestion for a job"""
+    if user["role"] != "professional":
+        raise HTTPException(status_code=403, detail="Only professionals can get bid suggestions")
+    
+    # Get job details
+    job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Get professional's profile
+    profile = await db.professional_profiles.find_one({"user_id": user["id"]}, {"_id": 0})
+    if not profile:
+        raise HTTPException(status_code=400, detail="Please create a profile first")
+    
+    # Get professional's past successful bids
+    past_bids = await db.bids.find({
+        "professional_id": user["id"],
+        "status": "accepted"
+    }, {"_id": 0}).to_list(10)
+    
+    if not EMERGENT_LLM_KEY:
+        # Fallback suggestion without AI
+        suggested_price = job["budget"] * 0.9  # 10% below budget
+        return {
+            "suggested_price": round(suggested_price, 0),
+            "suggested_hours": None,
+            "suggested_message": f"Hello! I'm an experienced {profile.get('profession', 'professional')} with {profile.get('experience_years', 0)} years of experience. I'm interested in your {job['title']} project and can deliver quality work within your budget.",
+            "ai_powered": False
+        }
+    
+    try:
+        chat = LlmChat(
+            api_key=EMERGENT_LLM_KEY,
+            session_id=f"bid-suggest-{uuid.uuid4()}",
+            system_message="""You are an AI assistant helping professionals write winning bids on Kazi Links marketplace.
+            Analyze the job requirements and professional's profile to suggest:
+            1. A competitive price (typically 5-15% below budget for better chances)
+            2. Estimated hours based on job complexity
+            3. A personalized, professional message that highlights relevant experience
+            Return JSON format: {"price": number, "hours": number, "message": "string"}"""
+        ).with_model("gemini", "gemini-3-flash-preview")
+        
+        past_bid_info = ""
+        if past_bids:
+            avg_price = sum(b["proposed_price"] for b in past_bids) / len(past_bids)
+            past_bid_info = f"Average winning bid price: KSh {avg_price:.0f}"
+        
+        user_message = UserMessage(
+            text=f"""Job Details:
+            - Title: {job['title']}
+            - Description: {job['description']}
+            - Category: {job['category']}
+            - Budget: KSh {job['budget']}
+            - Location: {job['location']}
+            
+            Professional Profile:
+            - Name: {user.get('name', 'Professional')}
+            - Profession: {profile.get('profession', 'N/A')}
+            - Experience: {profile.get('experience_years', 0)} years
+            - Skills: {', '.join(profile.get('skills', []))}
+            - Hourly Rate: KSh {profile.get('hourly_rate', 'N/A')}
+            - Rating: {profile.get('rating', 0)}/5 ({profile.get('total_reviews', 0)} reviews)
+            {past_bid_info}
+            
+            Generate a competitive bid suggestion. Return ONLY valid JSON."""
+        )
+        
+        response = await chat.send_message(user_message)
+        
+        # Parse AI response
+        import json
+        try:
+            json_start = response.find('{')
+            json_end = response.rfind('}') + 1
+            if json_start >= 0 and json_end > json_start:
+                suggestion = json.loads(response[json_start:json_end])
+                return {
+                    "suggested_price": suggestion.get("price", job["budget"] * 0.9),
+                    "suggested_hours": suggestion.get("hours"),
+                    "suggested_message": suggestion.get("message", ""),
+                    "ai_powered": True
+                }
+        except json.JSONDecodeError:
+            logger.warning("Could not parse AI bid suggestion")
+    except Exception as e:
+        logger.error(f"AI bid suggestion error: {e}")
+    
+    # Fallback
+    return {
+        "suggested_price": round(job["budget"] * 0.9, 0),
+        "suggested_hours": None,
+        "suggested_message": f"Hello! I'm an experienced {profile.get('profession', 'professional')} with {profile.get('experience_years', 0)} years of experience. I'm interested in your project and ready to deliver quality work.",
+        "ai_powered": False
+    }
+
 @api_router.get("/bids/job/{job_id}")
 async def get_job_bids(job_id: str, user = Depends(get_current_user)):
     """Get all bids for a specific job (client only)"""
