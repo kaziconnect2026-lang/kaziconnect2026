@@ -1164,14 +1164,34 @@ async def get_client_dashboard(user = Depends(get_current_user)):
     
     recent_jobs = await db.jobs.find({"client_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(5)
     
+    # Add bid count to jobs
+    for job in recent_jobs:
+        job["bid_count"] = await db.bids.count_documents({"job_id": job["id"]})
+    
     payments = await db.payments.find({"client_id": user["id"]}, {"_id": 0}).to_list(100)
     total_spent = sum(p["amount"] for p in payments if p["status"] == PaymentStatus.RELEASED.value)
+    
+    # Get completed bookings that need review
+    completed_bookings = await db.bookings.find(
+        {"client_id": user["id"], "status": "completed"},
+        {"_id": 0}
+    ).to_list(10)
+    
+    for booking in completed_bookings:
+        prof_user = await db.users.find_one({"id": booking["professional_id"]}, {"_id": 0, "password_hash": 0})
+        booking["professional"] = prof_user
+        existing_review = await db.reviews.find_one({"booking_id": booking["id"]})
+        booking["reviewed"] = existing_review is not None
+    
+    # Filter to only unreviewed ones
+    pending_reviews = [b for b in completed_bookings if not b.get("reviewed", False)]
     
     return {
         "active_bookings": active_bookings,
         "recent_jobs": recent_jobs,
         "total_spent": total_spent,
-        "total_bookings": len(payments)
+        "total_bookings": len(payments),
+        "pending_reviews": pending_reviews
     }
 
 @api_router.get("/dashboard/professional")
@@ -1191,9 +1211,51 @@ async def get_professional_dashboard(user = Depends(get_current_user)):
         client = await db.users.find_one({"id": booking["client_id"]}, {"_id": 0, "password_hash": 0})
         booking["client"] = client
     
-    payments = await db.payments.find({"professional_id": user["id"]}, {"_id": 0}).to_list(100)
+    # Get all payments for earnings calculation
+    payments = await db.payments.find({"professional_id": user["id"]}, {"_id": 0}).to_list(1000)
     total_earnings = sum(p["professional_amount"] for p in payments if p["status"] == PaymentStatus.RELEASED.value)
     pending_earnings = sum(p["professional_amount"] for p in payments if p["status"] == PaymentStatus.ESCROW.value)
+    total_platform_commission = sum(p["platform_fee"] for p in payments if p["status"] == PaymentStatus.RELEASED.value)
+    
+    # Weekly earnings breakdown (last 7 days)
+    now = datetime.now(timezone.utc)
+    week_start = now - timedelta(days=7)
+    
+    weekly_earnings = []
+    weekly_commission = []
+    daily_labels = []
+    
+    for i in range(7):
+        day = week_start + timedelta(days=i+1)
+        day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        day_payments = [
+            p for p in payments 
+            if p["status"] == PaymentStatus.RELEASED.value 
+            and p.get("released_at")
+            and day_start.isoformat() <= p["released_at"] <= day_end.isoformat()
+        ]
+        
+        day_earnings = sum(p["professional_amount"] for p in day_payments)
+        day_commission = sum(p["platform_fee"] for p in day_payments)
+        
+        weekly_earnings.append(day_earnings)
+        weekly_commission.append(day_commission)
+        daily_labels.append(day.strftime("%a"))
+    
+    # Get pending bids count
+    pending_bids = await db.bids.count_documents({"professional_id": user["id"], "status": "pending"})
+    accepted_bids = await db.bids.count_documents({"professional_id": user["id"], "status": "accepted"})
+    
+    # Get available jobs count in professional's category
+    if profile:
+        available_jobs = await db.jobs.count_documents({
+            "status": JobStatus.OPEN.value,
+            "category": {"$regex": profile.get("profession", ""), "$options": "i"}
+        })
+    else:
+        available_jobs = 0
     
     # Recent reviews
     reviews = await db.reviews.find({"professional_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(5)
@@ -1203,10 +1265,23 @@ async def get_professional_dashboard(user = Depends(get_current_user)):
         "upcoming_bookings": upcoming_bookings,
         "total_earnings": total_earnings,
         "pending_earnings": pending_earnings,
+        "total_platform_commission": total_platform_commission,
         "total_jobs": profile["total_jobs"] if profile else 0,
         "rating": profile["rating"] if profile else 0,
         "total_reviews": profile["total_reviews"] if profile else 0,
-        "recent_reviews": reviews
+        "recent_reviews": reviews,
+        "weekly_earnings": {
+            "labels": daily_labels,
+            "earnings": weekly_earnings,
+            "commissions": weekly_commission,
+            "total_week_earnings": sum(weekly_earnings),
+            "total_week_commission": sum(weekly_commission)
+        },
+        "bids": {
+            "pending": pending_bids,
+            "accepted": accepted_bids
+        },
+        "available_jobs": available_jobs
     }
 
 # Include the router in the main app
