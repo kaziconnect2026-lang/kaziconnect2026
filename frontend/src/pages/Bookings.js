@@ -1,16 +1,22 @@
 import { useState, useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Button } from "../components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { Badge } from "../components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "../components/ui/dialog";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Textarea } from "../components/ui/textarea";
+import { Calendar } from "../components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "../components/ui/popover";
 import { useAuth } from "../context/AuthContext";
 import axios from "axios";
 import { toast } from "sonner";
+import { format } from "date-fns";
 import { 
-  ArrowLeft, Calendar, Clock, DollarSign, User, CheckCircle2, 
-  XCircle, AlertCircle, CreditCard
+  ArrowLeft, Calendar as CalendarIcon, Clock, DollarSign, User, CheckCircle2, 
+  XCircle, AlertCircle, CreditCard, Star, RefreshCw, Unlock
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -24,6 +30,24 @@ export default function Bookings() {
   const [selectedBooking, setSelectedBooking] = useState(null);
   const [processingPayment, setProcessingPayment] = useState(false);
   const [updatingStatus, setUpdatingStatus] = useState(null);
+  const [releasingPayment, setReleasingPayment] = useState(null);
+  
+  // Review state
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewBooking, setReviewBooking] = useState(null);
+  const [reviewData, setReviewData] = useState({ rating: 5, comment: "" });
+  const [submittingReview, setSubmittingReview] = useState(false);
+  
+  // Rebook state
+  const [rebookOpen, setRebookOpen] = useState(false);
+  const [rebookBooking, setRebookBooking] = useState(null);
+  const [rebookData, setRebookData] = useState({
+    service_description: "",
+    scheduled_date: null,
+    estimated_hours: "",
+    agreed_price: ""
+  });
+  const [submittingRebook, setSubmittingRebook] = useState(false);
 
   useEffect(() => {
     fetchBookings();
@@ -44,7 +68,7 @@ export default function Bookings() {
   const handlePayment = async (booking) => {
     setProcessingPayment(true);
     try {
-      const response = await axios.post(`${API}/payments/initiate`, {
+      await axios.post(`${API}/payments/initiate`, {
         booking_id: booking.id,
         phone_number: user.phone || "254712345678"
       });
@@ -59,6 +83,19 @@ export default function Bookings() {
     }
   };
 
+  const handleReleasePayment = async (paymentId) => {
+    setReleasingPayment(paymentId);
+    try {
+      await axios.post(`${API}/payments/${paymentId}/release`);
+      toast.success("Payment released to professional!");
+      fetchBookings();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to release payment");
+    } finally {
+      setReleasingPayment(null);
+    }
+  };
+
   const handleStatusUpdate = async (bookingId, newStatus) => {
     setUpdatingStatus(bookingId);
     try {
@@ -70,6 +107,75 @@ export default function Bookings() {
     } finally {
       setUpdatingStatus(null);
     }
+  };
+
+  const handleSubmitReview = async (e) => {
+    e.preventDefault();
+    if (!reviewBooking) return;
+    
+    setSubmittingReview(true);
+    try {
+      await axios.post(`${API}/reviews`, {
+        booking_id: reviewBooking.id,
+        professional_id: reviewBooking.professional_id,
+        rating: reviewData.rating,
+        comment: reviewData.comment
+      });
+      
+      toast.success("Review submitted! Thank you for your feedback.");
+      setReviewOpen(false);
+      setReviewData({ rating: 5, comment: "" });
+      fetchBookings();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to submit review");
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
+
+  const handleRebook = async (e) => {
+    e.preventDefault();
+    if (!rebookBooking || !rebookData.scheduled_date) {
+      toast.error("Please fill all required fields");
+      return;
+    }
+    
+    setSubmittingRebook(true);
+    try {
+      await axios.post(`${API}/bookings/rebook/${rebookBooking.professional_id}`, {
+        professional_id: rebookBooking.professional_id,
+        service_description: rebookData.service_description,
+        scheduled_date: rebookData.scheduled_date.toISOString(),
+        estimated_hours: rebookData.estimated_hours ? parseFloat(rebookData.estimated_hours) : null,
+        agreed_price: parseFloat(rebookData.agreed_price)
+      });
+      
+      toast.success("Booking created successfully!");
+      setRebookOpen(false);
+      setRebookData({ service_description: "", scheduled_date: null, estimated_hours: "", agreed_price: "" });
+      fetchBookings();
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to create booking");
+    } finally {
+      setSubmittingRebook(false);
+    }
+  };
+
+  const openReviewDialog = (booking) => {
+    setReviewBooking(booking);
+    setReviewData({ rating: 5, comment: "" });
+    setReviewOpen(true);
+  };
+
+  const openRebookDialog = (booking) => {
+    setRebookBooking(booking);
+    setRebookData({
+      service_description: booking.service_description,
+      scheduled_date: null,
+      estimated_hours: booking.estimated_hours?.toString() || "",
+      agreed_price: booking.agreed_price?.toString() || ""
+    });
+    setRebookOpen(true);
   };
 
   const statusColors = {
@@ -129,6 +235,9 @@ export default function Bookings() {
                   {filterBookings(tab).map((booking) => {
                     const StatusIcon = statusIcons[booking.status];
                     const otherParty = user.role === "client" ? booking.professional : booking.client;
+                    const canReview = user.role === "client" && booking.status === "completed" && !booking.reviewed;
+                    const canRebook = user.role === "client" && booking.status === "completed";
+                    const canReleasePayment = user.role === "client" && booking.status === "completed" && booking.payment?.status === "escrow";
                     
                     return (
                       <Card key={booking.id} className="border-border" data-testid={`booking-${booking.id}`}>
@@ -145,7 +254,7 @@ export default function Bookings() {
                                 </p>
                                 <div className="flex flex-wrap items-center gap-3 mt-2">
                                   <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                    <Calendar className="w-3 h-3" />
+                                    <CalendarIcon className="w-3 h-3" />
                                     {new Date(booking.scheduled_date).toLocaleDateString()}
                                   </span>
                                   {booking.estimated_hours && (
@@ -166,12 +275,18 @@ export default function Bookings() {
                               <p className="text-lg font-bold">
                                 KSh {booking.agreed_price.toLocaleString()}
                               </p>
+                              {booking.payment && (
+                                <Badge variant="outline" className="text-xs">
+                                  Payment: {booking.payment.status}
+                                </Badge>
+                              )}
                             </div>
                           </div>
 
                           {/* Actions */}
                           <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
-                            {user.role === "client" && booking.status === "pending" && (
+                            {/* Client: Pay for pending booking */}
+                            {user.role === "client" && booking.status === "pending" && !booking.payment && (
                               <Dialog>
                                 <DialogTrigger asChild>
                                   <Button 
@@ -227,6 +342,46 @@ export default function Bookings() {
                               </Dialog>
                             )}
                             
+                            {/* Client: Release payment for completed booking */}
+                            {canReleasePayment && (
+                              <Button 
+                                onClick={() => handleReleasePayment(booking.payment.id)}
+                                disabled={releasingPayment === booking.payment.id}
+                                className="rounded-xl gap-2 bg-green-600 hover:bg-green-700"
+                                data-testid={`release-btn-${booking.id}`}
+                              >
+                                <Unlock className="w-4 h-4" />
+                                {releasingPayment === booking.payment.id ? "Releasing..." : "Release Payment"}
+                              </Button>
+                            )}
+                            
+                            {/* Client: Rate professional */}
+                            {canReview && (
+                              <Button 
+                                variant="outline"
+                                onClick={() => openReviewDialog(booking)}
+                                className="rounded-xl gap-2"
+                                data-testid={`review-btn-${booking.id}`}
+                              >
+                                <Star className="w-4 h-4" />
+                                Rate Service
+                              </Button>
+                            )}
+                            
+                            {/* Client: Rebook professional */}
+                            {canRebook && (
+                              <Button 
+                                variant="outline"
+                                onClick={() => openRebookDialog(booking)}
+                                className="rounded-xl gap-2"
+                                data-testid={`rebook-btn-${booking.id}`}
+                              >
+                                <RefreshCw className="w-4 h-4" />
+                                Book Again
+                              </Button>
+                            )}
+                            
+                            {/* Professional: Start work */}
                             {user.role === "professional" && booking.status === "confirmed" && (
                               <Button 
                                 onClick={() => handleStatusUpdate(booking.id, "in_progress")}
@@ -238,6 +393,7 @@ export default function Bookings() {
                               </Button>
                             )}
                             
+                            {/* Professional: Mark complete */}
                             {user.role === "professional" && booking.status === "in_progress" && (
                               <Button 
                                 onClick={() => handleStatusUpdate(booking.id, "completed")}
@@ -249,6 +405,7 @@ export default function Bookings() {
                               </Button>
                             )}
                             
+                            {/* Cancel booking */}
                             {booking.status === "pending" && (
                               <Button 
                                 variant="outline"
@@ -260,6 +417,14 @@ export default function Bookings() {
                                 Cancel
                               </Button>
                             )}
+                            
+                            {/* Already reviewed badge */}
+                            {user.role === "client" && booking.status === "completed" && booking.reviewed && (
+                              <Badge variant="outline" className="gap-1">
+                                <CheckCircle2 className="w-3 h-3" />
+                                Reviewed
+                              </Badge>
+                            )}
                           </div>
                         </CardContent>
                       </Card>
@@ -268,7 +433,7 @@ export default function Bookings() {
                 </div>
               ) : (
                 <div className="text-center py-12">
-                  <Calendar className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                  <CalendarIcon className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
                   <h3 className="font-heading text-xl font-semibold mb-2">No bookings found</h3>
                   <p className="text-muted-foreground mb-6">
                     {user.role === "client" 
@@ -287,6 +452,155 @@ export default function Bookings() {
           ))}
         </Tabs>
       </main>
+
+      {/* Review Dialog */}
+      <Dialog open={reviewOpen} onOpenChange={setReviewOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-heading">Rate Your Experience</DialogTitle>
+          </DialogHeader>
+          {reviewBooking && (
+            <form onSubmit={handleSubmitReview} className="space-y-4 mt-4">
+              <div className="p-4 bg-muted/50 rounded-xl text-center">
+                <p className="text-sm text-muted-foreground mb-2">
+                  How was your experience with {reviewBooking.professional?.name}?
+                </p>
+                <div className="flex justify-center gap-2 mb-2">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button
+                      key={star}
+                      type="button"
+                      onClick={() => setReviewData({...reviewData, rating: star})}
+                      className="focus:outline-none"
+                      data-testid={`star-${star}`}
+                    >
+                      <Star 
+                        className={`w-8 h-8 transition-colors ${
+                          star <= reviewData.rating 
+                            ? 'text-primary fill-primary' 
+                            : 'text-muted-foreground'
+                        }`}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <p className="text-sm font-medium">
+                  {reviewData.rating === 5 && "Excellent!"}
+                  {reviewData.rating === 4 && "Great!"}
+                  {reviewData.rating === 3 && "Good"}
+                  {reviewData.rating === 2 && "Fair"}
+                  {reviewData.rating === 1 && "Poor"}
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Your Review (Optional)</Label>
+                <Textarea
+                  placeholder="Tell others about your experience..."
+                  value={reviewData.comment}
+                  onChange={(e) => setReviewData({...reviewData, comment: e.target.value})}
+                  rows={4}
+                  data-testid="review-comment"
+                />
+              </div>
+              
+              <Button 
+                type="submit" 
+                className="w-full h-12 rounded-xl"
+                disabled={submittingReview}
+                data-testid="submit-review-btn"
+              >
+                {submittingReview ? "Submitting..." : "Submit Review"}
+              </Button>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Rebook Dialog */}
+      <Dialog open={rebookOpen} onOpenChange={setRebookOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="font-heading">Book Again</DialogTitle>
+          </DialogHeader>
+          {rebookBooking && (
+            <form onSubmit={handleRebook} className="space-y-4 mt-4">
+              <div className="p-4 bg-muted/50 rounded-xl">
+                <p className="text-sm text-muted-foreground">
+                  Booking with <strong>{rebookBooking.professional?.name}</strong>
+                </p>
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Service Description</Label>
+                <Textarea
+                  placeholder="Describe what you need..."
+                  value={rebookData.service_description}
+                  onChange={(e) => setRebookData({...rebookData, service_description: e.target.value})}
+                  required
+                  data-testid="rebook-description"
+                />
+              </div>
+              
+              <div className="space-y-2">
+                <Label>Preferred Date</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start">
+                      <CalendarIcon className="w-4 h-4 mr-2" />
+                      {rebookData.scheduled_date 
+                        ? format(rebookData.scheduled_date, "PPP")
+                        : "Pick a date"
+                      }
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0">
+                    <Calendar
+                      mode="single"
+                      selected={rebookData.scheduled_date}
+                      onSelect={(date) => setRebookData({...rebookData, scheduled_date: date})}
+                      disabled={(date) => date < new Date()}
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Est. Hours</Label>
+                  <Input
+                    type="number"
+                    placeholder="e.g., 2"
+                    value={rebookData.estimated_hours}
+                    onChange={(e) => setRebookData({...rebookData, estimated_hours: e.target.value})}
+                    data-testid="rebook-hours"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Price (KSh)</Label>
+                  <Input
+                    type="number"
+                    placeholder="e.g., 2500"
+                    value={rebookData.agreed_price}
+                    onChange={(e) => setRebookData({...rebookData, agreed_price: e.target.value})}
+                    required
+                    data-testid="rebook-price"
+                  />
+                </div>
+              </div>
+              
+              <Button 
+                type="submit" 
+                className="w-full h-12 rounded-xl"
+                disabled={submittingRebook}
+                data-testid="submit-rebook-btn"
+              >
+                {submittingRebook ? "Creating Booking..." : "Confirm Booking"}
+              </Button>
+            </form>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
