@@ -538,25 +538,36 @@ async def get_jobs(
         query["category"] = {"$regex": category, "$options": "i"}
     
     jobs = await db.jobs.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    # Enrich with bid count for client jobs
+    for job in jobs:
+        bid_count = await db.bids.count_documents({"job_id": job["id"]})
+        job["bid_count"] = bid_count
+    
     return jobs
 
 @api_router.get("/jobs/available")
-async def get_available_jobs(category: Optional[str] = None):
+async def get_available_jobs(category: Optional[str] = None, user = Depends(get_current_user)):
+    """Get available jobs for professionals to bid on"""
     query = {"status": JobStatus.OPEN.value}
     if category:
         query["category"] = {"$regex": category, "$options": "i"}
     
     jobs = await db.jobs.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
     
-    # Enrich with client info
+    # Enrich with client info and check if user already bid
     for job in jobs:
         client = await db.users.find_one({"id": job["client_id"]}, {"_id": 0, "password_hash": 0})
         job["client"] = client
+        # Check if current professional already bid on this job
+        existing_bid = await db.bids.find_one({"job_id": job["id"], "professional_id": user["id"]})
+        job["has_bid"] = existing_bid is not None
+        job["bid_count"] = await db.bids.count_documents({"job_id": job["id"]})
     
     return jobs
 
 @api_router.get("/jobs/{job_id}")
-async def get_job_detail(job_id: str):
+async def get_job_detail(job_id: str, user = Depends(get_current_user)):
     job = await db.jobs.find_one({"id": job_id}, {"_id": 0})
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -564,7 +575,165 @@ async def get_job_detail(job_id: str):
     client = await db.users.find_one({"id": job["client_id"]}, {"_id": 0, "password_hash": 0})
     job["client"] = client
     
+    # Get bids for this job (only if client owns the job)
+    if user["role"] == "client" and job["client_id"] == user["id"]:
+        bids = await db.bids.find({"job_id": job_id}, {"_id": 0}).to_list(50)
+        for bid in bids:
+            pro_user = await db.users.find_one({"id": bid["professional_id"]}, {"_id": 0, "password_hash": 0})
+            pro_profile = await db.professional_profiles.find_one({"user_id": bid["professional_id"]}, {"_id": 0})
+            bid["professional"] = pro_user
+            bid["profile"] = pro_profile
+        job["bids"] = bids
+    
     return job
+
+# ============= BIDDING ENDPOINTS =============
+@api_router.post("/bids")
+async def create_bid(bid_data: BidCreate, user = Depends(get_current_user)):
+    """Professional submits a bid for a job"""
+    if user["role"] != "professional":
+        raise HTTPException(status_code=403, detail="Only professionals can submit bids")
+    
+    # Check if job exists and is open
+    job = await db.jobs.find_one({"id": bid_data.job_id})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["status"] != JobStatus.OPEN.value:
+        raise HTTPException(status_code=400, detail="Job is no longer accepting bids")
+    
+    # Check if professional already bid on this job
+    existing_bid = await db.bids.find_one({"job_id": bid_data.job_id, "professional_id": user["id"]})
+    if existing_bid:
+        raise HTTPException(status_code=400, detail="You have already submitted a bid for this job")
+    
+    # Check if professional has a profile
+    profile = await db.professional_profiles.find_one({"user_id": user["id"]})
+    if not profile:
+        raise HTTPException(status_code=400, detail="Please create a profile before bidding")
+    
+    bid_id = str(uuid.uuid4())
+    bid_doc = {
+        "id": bid_id,
+        "job_id": bid_data.job_id,
+        "professional_id": user["id"],
+        "proposed_price": bid_data.proposed_price,
+        "message": bid_data.message,
+        "estimated_hours": bid_data.estimated_hours,
+        "status": BidStatus.PENDING.value,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.bids.insert_one(bid_doc)
+    return {"message": "Bid submitted successfully", "bid": {k: v for k, v in bid_doc.items() if k != "_id"}}
+
+@api_router.get("/bids/my")
+async def get_my_bids(user = Depends(get_current_user)):
+    """Get all bids submitted by the professional"""
+    if user["role"] != "professional":
+        raise HTTPException(status_code=403, detail="Only professionals can view their bids")
+    
+    bids = await db.bids.find({"professional_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    # Enrich with job details
+    for bid in bids:
+        job = await db.jobs.find_one({"id": bid["job_id"]}, {"_id": 0})
+        if job:
+            client = await db.users.find_one({"id": job["client_id"]}, {"_id": 0, "password_hash": 0})
+            job["client"] = client
+        bid["job"] = job
+    
+    return bids
+
+@api_router.get("/bids/job/{job_id}")
+async def get_job_bids(job_id: str, user = Depends(get_current_user)):
+    """Get all bids for a specific job (client only)"""
+    job = await db.jobs.find_one({"id": job_id})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if user["role"] == "client" and job["client_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized to view bids for this job")
+    
+    bids = await db.bids.find({"job_id": job_id}, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    for bid in bids:
+        pro_user = await db.users.find_one({"id": bid["professional_id"]}, {"_id": 0, "password_hash": 0})
+        pro_profile = await db.professional_profiles.find_one({"user_id": bid["professional_id"]}, {"_id": 0})
+        bid["professional"] = pro_user
+        bid["profile"] = pro_profile
+    
+    return bids
+
+@api_router.put("/bids/{bid_id}/accept")
+async def accept_bid(bid_id: str, user = Depends(get_current_user)):
+    """Client accepts a bid, creating a booking"""
+    if user["role"] != "client":
+        raise HTTPException(status_code=403, detail="Only clients can accept bids")
+    
+    bid = await db.bids.find_one({"id": bid_id})
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+    
+    job = await db.jobs.find_one({"id": bid["job_id"]})
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["client_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Update bid status
+    await db.bids.update_one({"id": bid_id}, {"$set": {"status": BidStatus.ACCEPTED.value}})
+    
+    # Reject all other bids for this job
+    await db.bids.update_many(
+        {"job_id": bid["job_id"], "id": {"$ne": bid_id}},
+        {"$set": {"status": BidStatus.REJECTED.value}}
+    )
+    
+    # Update job status
+    await db.jobs.update_one(
+        {"id": bid["job_id"]},
+        {"$set": {"status": JobStatus.MATCHED.value, "matched_professional_id": bid["professional_id"]}}
+    )
+    
+    # Create booking
+    booking_id = str(uuid.uuid4())
+    booking_doc = {
+        "id": booking_id,
+        "client_id": user["id"],
+        "professional_id": bid["professional_id"],
+        "job_id": bid["job_id"],
+        "service_description": job["title"],
+        "scheduled_date": datetime.now(timezone.utc).isoformat(),  # Default to now, client can update
+        "estimated_hours": bid.get("estimated_hours"),
+        "agreed_price": bid["proposed_price"],
+        "status": BookingStatus.PENDING.value,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None
+    }
+    
+    await db.bookings.insert_one(booking_doc)
+    
+    return {
+        "message": "Bid accepted and booking created",
+        "booking": {k: v for k, v in booking_doc.items() if k != "_id"}
+    }
+
+@api_router.put("/bids/{bid_id}/reject")
+async def reject_bid(bid_id: str, user = Depends(get_current_user)):
+    """Client rejects a bid"""
+    if user["role"] != "client":
+        raise HTTPException(status_code=403, detail="Only clients can reject bids")
+    
+    bid = await db.bids.find_one({"id": bid_id})
+    if not bid:
+        raise HTTPException(status_code=404, detail="Bid not found")
+    
+    job = await db.jobs.find_one({"id": bid["job_id"]})
+    if job["client_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    await db.bids.update_one({"id": bid_id}, {"$set": {"status": BidStatus.REJECTED.value}})
+    return {"message": "Bid rejected"}
 
 # ============= AI MATCHING ENDPOINT =============
 @api_router.post("/match")
