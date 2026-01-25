@@ -288,27 +288,37 @@ export default function ClientDashboard() {
                 {dashboardData?.recent_jobs?.length > 0 ? (
                   <div className="space-y-4">
                     {dashboardData.recent_jobs.map((job) => (
-                      <div 
+                      <Link 
                         key={job.id} 
-                        className="flex items-center justify-between p-4 bg-muted/50 rounded-xl"
-                        data-testid={`job-${job.id}`}
+                        to={job.bid_count > 0 ? `/client/jobs/${job.id}/bids` : "#"}
+                        className="block"
                       >
-                        <div>
-                          <p className="font-medium">{job.title}</p>
-                          <div className="flex items-center gap-3 mt-1">
-                            <span className="text-sm text-muted-foreground">{job.category}</span>
-                            <span className="text-sm text-muted-foreground flex items-center gap-1">
-                              <MapPin className="w-3 h-3" /> {job.location}
-                            </span>
+                        <div 
+                          className={`flex items-center justify-between p-4 bg-muted/50 rounded-xl ${job.bid_count > 0 ? 'hover:bg-muted cursor-pointer' : ''}`}
+                          data-testid={`job-${job.id}`}
+                        >
+                          <div>
+                            <p className="font-medium">{job.title}</p>
+                            <div className="flex items-center gap-3 mt-1">
+                              <span className="text-sm text-muted-foreground">{job.category}</span>
+                              <span className="text-sm text-muted-foreground flex items-center gap-1">
+                                <MapPin className="w-3 h-3" /> {job.location}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="text-right">
+                            <Badge className={job.status === "open" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}>
+                              {job.status}
+                            </Badge>
+                            <p className="text-sm font-medium mt-2">KSh {job.budget.toLocaleString()}</p>
+                            {job.bid_count > 0 && (
+                              <p className="text-xs text-primary mt-1">
+                                {job.bid_count} bid{job.bid_count !== 1 ? 's' : ''} received
+                              </p>
+                            )}
                           </div>
                         </div>
-                        <div className="text-right">
-                          <Badge className={job.status === "open" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}>
-                            {job.status}
-                          </Badge>
-                          <p className="text-sm font-medium mt-2">KSh {job.budget.toLocaleString()}</p>
-                        </div>
-                      </div>
+                      </Link>
                     ))}
                   </div>
                 ) : (
