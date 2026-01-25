@@ -548,9 +548,21 @@ async def get_jobs(
 
 @api_router.get("/jobs/available")
 async def get_available_jobs(category: Optional[str] = None, user = Depends(get_current_user)):
-    """Get available jobs for professionals to bid on"""
+    """Get available jobs for professionals to bid on - filtered by their profession category"""
+    if user["role"] != "professional":
+        raise HTTPException(status_code=403, detail="Only professionals can view available jobs")
+    
+    # Get professional's profile to filter by their category
+    profile = await db.professional_profiles.find_one({"user_id": user["id"]}, {"_id": 0})
+    
     query = {"status": JobStatus.OPEN.value}
-    if category:
+    
+    # Filter jobs by professional's category/profession
+    if profile and profile.get("profession"):
+        # Map profession to matching job categories
+        profession = profile["profession"].lower()
+        query["category"] = {"$regex": profession, "$options": "i"}
+    elif category:
         query["category"] = {"$regex": category, "$options": "i"}
     
     jobs = await db.jobs.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
@@ -564,7 +576,7 @@ async def get_available_jobs(category: Optional[str] = None, user = Depends(get_
         job["has_bid"] = existing_bid is not None
         job["bid_count"] = await db.bids.count_documents({"job_id": job["id"]})
     
-    return jobs
+    return {"jobs": jobs, "profession": profile.get("profession") if profile else None}
 
 @api_router.get("/jobs/{job_id}")
 async def get_job_detail(job_id: str, user = Depends(get_current_user)):
