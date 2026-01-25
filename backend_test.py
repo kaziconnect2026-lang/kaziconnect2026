@@ -5,7 +5,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Dict, Any, Optional
 
 class KaziLinksAPITester:
-    def __init__(self, base_url="https://skill-finder-60.preview.emergentagent.com/api"):
+    def __init__(self, base_url="https://servicepros-1.preview.emergentagent.com/api"):
         self.base_url = base_url
         self.client_token = None
         self.professional_token = None

@@ -1,0 +1,157 @@
+<analysis>**original_problem_statement:**
+The user wants to build a platform named Kazi Links where clients can find and hire skilled professionals like barbers, electricians, and plumbers based on location, proximity, and ratings.
+
+PRODUCT REQUIREMENTS:
+- **For Professionals:**
+  - Create a profile describing their profession, portfolio, and service rates (per hour/project).
+  - A dedicated dashboard to view bookings, commission schedules, completed jobs, and earnings.
+- **For Clients:**
+  - Post custom jobs with a specific budget.
+  - Search for professionals by their profession and ratings.
+  - A dedicated dashboard to manage their posted jobs and bookings.
+- **Platform Features:**
+  - An AI-powered algorithm to match clients with suitable professionals.
+  - The platform charges a 20% commission on all transactions.
+  - An admin dashboard for platform oversight.
+  - **M-Pesa integration with an escrow system**: Clients deposit funds to the platform, and payment is released to the professional upon job completion.
+  - **Technology Choice**: The application should be a responsive Progressive Web App (PWA) using Gemini 3 Flash for the AI matching feature.
+
+**User's preferred language**: English
+
+**what currently exists?**
+The initial scaffolding for the Kazi Links PWA has been created. This includes:
+- A **FastAPI backend** () with Pydantic models and placeholder API endpoints for user authentication, job management, professional searching, AI matching, and payments.
+- A **React frontend** with placeholder pages for the landing page, registration, login, and dashboards for clients, professionals, and admins. Basic routing is set up in .
+- **Styling** is configured using TailwindCSS with a custom color palette (Nairobi Gold, Rift Valley Slate) and fonts (Outfit, DM Sans) as per the design guidelines.
+- A **PWA manifest** () has been created to make the web app installable.
+- **Integrations**: The  library has been installed to support Gemini 3 Flash, and the integration playbook for M-Pesa has been fetched. The M-Pesa implementation is currently mocked in the backend.
+
+**Last working item**:
+The agent completed the initial setup of the PWA, creating all necessary backend and frontend files as placeholders. It then took screenshots of the landing and registration pages to verify the UI. The final action was creating the  document before finishing the session.
+
+- **Last item agent was working**: Finishing the initial scaffolding of the application, which involved creating file structures, basic UI, backend models, API endpoints, and generating the PRD.
+- **Status**: COMPLETED (The initial scaffolding task is complete. The next phase of implementing the features can begin).
+- **Agent Testing Done**: Y (A testing agent was run and all basic tests passed).
+- **Which testing method agent to use?**: both (As features are built out, both frontend and backend will need testing).
+- **User Testing Done**: N
+
+**All Pending/In progress Issue list**:
+There are no outstanding bugs or issues. The project is at a clean state, ready for feature implementation.
+
+**In progress Task List**:
+There are no tasks currently in progress.
+
+**Upcoming and Future Tasks**
+The existing files are mostly placeholders. The core task is to implement the application's functionality.
+- **P0: Implement Backend Logic**:
+  - **File**: 
+  - **Task**: Flesh out all placeholder API endpoints.
+    - Implement the AI-powered matching logic in the  endpoint using Gemini 3 Flash.
+    - Implement the full M-Pesa escrow flow for the  endpoint, replacing the current mock.
+    - Add business logic for creating and managing jobs, bookings, and user profiles.
+- **P0: Update Backend Dependencies**:
+  - **Task**: The  library was installed but not added to . Run  to persist the dependency.
+- **P1: Implement Frontend Dashboards and Core Features**:
+  - **Files**: 
+  - **Tasks**:
+    - **Client Dashboard**: Build the UI to display posted jobs, search for professionals, and manage bookings. ()
+    - **Professional Dashboard**: Build the UI to manage the professional's profile, view incoming bookings, and track earnings. ()
+    - **Job & Profile Management**: Connect the frontend forms (, ) to the backend APIs.
+    - **Search**: Implement the search functionality with filters on the  page.
+- **P2: Implement Secondary Features**:
+  - **Rating System**: Add models and endpoints to the backend, and UI components to the frontend to allow clients to rate professionals.
+  - **Location-Based Search**: Enhance the search functionality to filter professionals based on geographic location. This will require backend and frontend changes.
+  - **Admin Dashboard**: Build out the  to provide administrative oversight of users, jobs, and payments.
+
+**Completed work in this session**
+- **Project Scaffolding**: Created the initial file structure for the entire PWA.
+- **Backend Setup**: Initialized FastAPI server with models and placeholder endpoints for users, jobs, payments, and admin functionality ().
+- **Frontend Setup**: Created React pages for landing, auth, and all dashboards ().
+- **Styling**: Configured TailwindCSS and global styles with the app's design theme (, ).
+- **PWA Configuration**: Added a  for PWA installability.
+- **Documentation**: Generated a Product Requirements Document ().
+
+**Earlier issues found/mentioned but not fixed**
+None.
+
+**Known issue recurrence from previous fork**
+None.
+
+**Code Architecture**
+
+
+**Key Technical Concepts**
+- **Frontend**: React (as a Progressive Web App), TailwindCSS
+- **Backend**: FastAPI, MongoDB
+- **Authentication**: JWT (JSON Web Tokens)
+- **Integrations**: Gemini 3 Flash for AI, M-Pesa for payments.
+
+**key DB schema**
+The schema is defined by Pydantic models in :
+- **User**: 
+- **ProfessionalProfile**: 
+- **Job**: 
+- **Booking**: 
+- **Payment**: 
+
+**changes in tech stack**
+None. The project uses the standard FastAPI, React, and MongoDB stack.
+
+**All files of reference**
+*   : Main backend application file with all API logic.
+*   : Main frontend component, handles routing.
+*   : Directory containing all frontend page components.
+*   : Contains backend environment variables, including the .
+*   : Contains the UI/UX design specifications.
+*   : The Product Requirements Document.
+*   : Report from the initial test run.
+
+**Areas that need refactoring**:
+The project is a scaffold. All placeholder files in  and endpoint functions in  need to be implemented, not refactored.
+
+**key api endpoints**
+- 
+- 
+- 
+- 
+- 
+- 
+-  (AI Matching)
+-  (M-Pesa Escrow)
+- 
+
+**Critical Info for New Agent**
+- The user explicitly chose to build a **Progressive Web App (PWA)** first, deferring a native mobile app.
+- The payment system must use **M-Pesa with an escrow model**. The implementation is currently mocked and needs to be built out.
+- The professional matching feature must use **Gemini 3 Flash**. The  library is installed for this purpose.
+- Adhere to the design system defined in .
+
+**documents and test reports created in this job**
+- 
+- 
+- 
+
+**Last 10 User Messages and any pending HUMAN messages**
+- build a responsive pwa (Completed: The agent built the initial PWA scaffold).
+
+**Project Health Check:**
+- **Broken**: None.
+- **Mocked**: The M-Pesa payment flow is mocked in the backend (). All core features (dashboards, job posting, search) exist only as placeholder pages and need to be implemented.
+
+**3rd Party Integrations**
+- **Gemini 3 Flash**: For AI-powered matching. Uses the **Emergent LLM Key**.
+- **M-Pesa**: For payments with escrow. Playbook has been fetched; requires a **User API Key** for full implementation.
+
+**Testing status**
+- **Testing agent used after significant changes**: YES (used once after initial scaffolding).
+- **Troubleshoot agent used after agent stuck in loop**: NO
+- **Test files created**: None.
+- **Known regressions**: None.
+
+**Credentials to test flow:**
+The basic registration/login can be tested with the following credentials used by the testing agent:
+- Client:  / 
+- Professional:  / 
+
+**What agent forgot to execute**
+- The agent installed the  python package but did not update the  file. This must be done to ensure the backend environment is reproducible. A  command is needed.</analysis>
