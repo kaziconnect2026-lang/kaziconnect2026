@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { 
   Home, Calendar, DollarSign, Star, TrendingUp, Clock,
   User, LogOut, Menu, X, Settings, Briefcase, ChevronRight,
-  AlertCircle, CheckCircle2
+  AlertCircle, Send, Eye, BarChart3
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -133,6 +133,14 @@ export default function ProfessionalDashboard() {
               <Home className="w-5 h-5" />
               <span className="font-medium">Dashboard</span>
             </Link>
+            <Link to="/professional/jobs" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted">
+              <Briefcase className="w-5 h-5" />
+              <span>Browse Jobs</span>
+            </Link>
+            <Link to="/professional/bids" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted">
+              <Send className="w-5 h-5" />
+              <span>My Bids</span>
+            </Link>
             <Link to="/professional/bookings" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted">
               <Calendar className="w-5 h-5" />
               <span>My Bookings</span>
@@ -170,6 +178,32 @@ export default function ProfessionalDashboard() {
             >
               <Home className="w-5 h-5" />
               <span>Dashboard</span>
+            </Link>
+            <Link 
+              to="/professional/jobs" 
+              className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-colors"
+              data-testid="nav-jobs"
+            >
+              <Briefcase className="w-5 h-5" />
+              <span>Browse Jobs</span>
+              {dashboardData?.available_jobs > 0 && (
+                <Badge className="ml-auto bg-primary text-primary-foreground text-xs">
+                  {dashboardData.available_jobs}
+                </Badge>
+              )}
+            </Link>
+            <Link 
+              to="/professional/bids" 
+              className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-colors"
+              data-testid="nav-bids"
+            >
+              <Send className="w-5 h-5" />
+              <span>My Bids</span>
+              {dashboardData?.bids?.pending > 0 && (
+                <Badge className="ml-auto bg-yellow-100 text-yellow-800 text-xs">
+                  {dashboardData.bids.pending}
+                </Badge>
+              )}
             </Link>
             <Link 
               to="/professional/bookings" 
@@ -211,7 +245,7 @@ export default function ProfessionalDashboard() {
         </aside>
 
         {/* Main Content */}
-        <main className="flex-1 p-4 lg:p-8 pt-20 lg:pt-8">
+        <main className="flex-1 p-4 lg:p-8 pt-20 lg:pt-8 pb-24 lg:pb-8">
           <div className="max-w-6xl mx-auto">
             {/* Header with Availability Toggle */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-8">
@@ -230,6 +264,59 @@ export default function ProfessionalDashboard() {
                   data-testid="availability-toggle"
                 />
               </div>
+            </div>
+
+            {/* Quick Actions */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+              <Link to="/professional/jobs">
+                <Card className="h-full hover:shadow-card-hover transition-all cursor-pointer border-border">
+                  <CardContent className="p-4 flex flex-col items-center text-center">
+                    <div className="w-12 h-12 bg-primary/10 rounded-xl flex items-center justify-center mb-3 relative">
+                      <Briefcase className="w-6 h-6 text-primary" />
+                      {dashboardData?.available_jobs > 0 && (
+                        <span className="absolute -top-1 -right-1 w-5 h-5 bg-primary text-primary-foreground text-xs rounded-full flex items-center justify-center">
+                          {dashboardData.available_jobs}
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-medium text-sm">Browse Jobs</span>
+                  </CardContent>
+                </Card>
+              </Link>
+              <Link to="/professional/bids">
+                <Card className="h-full hover:shadow-card-hover transition-all cursor-pointer border-border">
+                  <CardContent className="p-4 flex flex-col items-center text-center">
+                    <div className="w-12 h-12 bg-yellow-100 rounded-xl flex items-center justify-center mb-3 relative">
+                      <Send className="w-6 h-6 text-yellow-600" />
+                      {dashboardData?.bids?.pending > 0 && (
+                        <span className="absolute -top-1 -right-1 w-5 h-5 bg-yellow-500 text-white text-xs rounded-full flex items-center justify-center">
+                          {dashboardData.bids.pending}
+                        </span>
+                      )}
+                    </div>
+                    <span className="font-medium text-sm">My Bids</span>
+                  </CardContent>
+                </Card>
+              </Link>
+              <Link to="/professional/bookings">
+                <Card className="h-full hover:shadow-card-hover transition-all cursor-pointer border-border">
+                  <CardContent className="p-4 flex flex-col items-center text-center">
+                    <div className="w-12 h-12 bg-blue-100 rounded-xl flex items-center justify-center mb-3">
+                      <Calendar className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <span className="font-medium text-sm">Bookings</span>
+                  </CardContent>
+                </Card>
+              </Link>
+              <Card className="h-full border-border">
+                <CardContent className="p-4 flex flex-col items-center text-center">
+                  <div className="w-12 h-12 bg-emerald-100 rounded-xl flex items-center justify-center mb-3">
+                    <DollarSign className="w-6 h-6 text-emerald-600" />
+                  </div>
+                  <span className="font-medium text-sm">KSh {dashboardData?.total_earnings?.toLocaleString() || 0}</span>
+                  <span className="text-xs text-muted-foreground">Total Earned</span>
+                </CardContent>
+              </Card>
             </div>
 
             {/* Stats Grid */}
@@ -299,6 +386,68 @@ export default function ProfessionalDashboard() {
               </Card>
             </div>
 
+            {/* Weekly Earnings Chart */}
+            <Card className="border-border mb-8" data-testid="weekly-earnings">
+              <CardHeader className="flex flex-row items-center justify-between">
+                <CardTitle className="font-heading text-lg flex items-center gap-2">
+                  <BarChart3 className="w-5 h-5" />
+                  Weekly Earnings
+                </CardTitle>
+                <div className="text-right">
+                  <p className="text-sm text-muted-foreground">This Week</p>
+                  <p className="font-bold text-primary">
+                    KSh {dashboardData?.weekly_earnings?.total_week_earnings?.toLocaleString() || 0}
+                  </p>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {/* Simple bar chart visualization */}
+                <div className="flex items-end justify-between gap-2 h-32 mb-4">
+                  {dashboardData?.weekly_earnings?.labels?.map((day, i) => {
+                    const earnings = dashboardData?.weekly_earnings?.earnings?.[i] || 0;
+                    const maxEarnings = Math.max(...(dashboardData?.weekly_earnings?.earnings || [1]));
+                    const height = maxEarnings > 0 ? (earnings / maxEarnings) * 100 : 0;
+                    
+                    return (
+                      <div key={day} className="flex-1 flex flex-col items-center gap-2">
+                        <div className="w-full flex flex-col items-center justify-end h-24">
+                          <div 
+                            className="w-full max-w-8 bg-primary rounded-t-lg transition-all"
+                            style={{ height: `${Math.max(height, 4)}%` }}
+                          />
+                        </div>
+                        <span className="text-xs text-muted-foreground">{day}</span>
+                      </div>
+                    );
+                  })}
+                </div>
+                
+                {/* Earnings vs Commission breakdown */}
+                <div className="grid grid-cols-2 gap-4 pt-4 border-t border-border">
+                  <div className="p-3 bg-emerald-50 rounded-xl">
+                    <p className="text-sm text-muted-foreground">Your Earnings</p>
+                    <p className="text-xl font-bold text-emerald-600">
+                      KSh {dashboardData?.weekly_earnings?.total_week_earnings?.toLocaleString() || 0}
+                    </p>
+                  </div>
+                  <div className="p-3 bg-orange-50 rounded-xl">
+                    <p className="text-sm text-muted-foreground">Platform Fee (20%)</p>
+                    <p className="text-xl font-bold text-orange-600">
+                      KSh {dashboardData?.weekly_earnings?.total_week_commission?.toLocaleString() || 0}
+                    </p>
+                  </div>
+                </div>
+                
+                {/* Lifetime commission */}
+                <div className="mt-4 p-3 bg-muted/50 rounded-xl">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm text-muted-foreground">Total Platform Commission (Lifetime)</span>
+                    <span className="font-medium">KSh {dashboardData?.total_platform_commission?.toLocaleString() || 0}</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="grid lg:grid-cols-2 gap-6">
               {/* Upcoming Bookings */}
               <Card className="border-border" data-testid="upcoming-bookings">
@@ -344,6 +493,9 @@ export default function ProfessionalDashboard() {
                     <div className="text-center py-8">
                       <Calendar className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
                       <p className="text-muted-foreground">No upcoming bookings</p>
+                      <Link to="/professional/jobs">
+                        <Button variant="link" className="mt-2">Browse available jobs</Button>
+                      </Link>
                     </div>
                   )}
                 </CardContent>
@@ -372,7 +524,7 @@ export default function ProfessionalDashboard() {
                               {new Date(review.created_at).toLocaleDateString()}
                             </span>
                           </div>
-                          <p className="text-sm">{review.comment}</p>
+                          <p className="text-sm">{review.comment || "No comment provided"}</p>
                         </div>
                       ))}
                     </div>
@@ -394,10 +546,12 @@ export default function ProfessionalDashboard() {
                     <AlertCircle className="w-5 h-5 text-primary" />
                   </div>
                   <div>
-                    <h3 className="font-heading font-semibold mb-1">Platform Commission</h3>
+                    <h3 className="font-heading font-semibold mb-1">How Earnings Work</h3>
                     <p className="text-sm text-muted-foreground">
-                      Kazi Links charges a <strong>20% platform fee</strong> on each transaction. This covers payment processing, 
-                      customer support, and platform maintenance. You receive <strong>80%</strong> of the agreed price after job completion.
+                      Kazi Links charges a <strong>20% platform fee</strong> on each completed transaction. 
+                      This covers payment processing, customer support, and platform maintenance. 
+                      You receive <strong>80%</strong> of the agreed price after the client releases payment upon job completion.
+                      Payments are held in escrow for your protection.
                     </p>
                   </div>
                 </div>
@@ -408,19 +562,33 @@ export default function ProfessionalDashboard() {
       </div>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 glass border-t border-border/40 px-6 py-3">
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 glass border-t border-border/40 px-4 py-3">
         <div className="flex items-center justify-around">
           <Link to="/professional" className="flex flex-col items-center gap-1 text-primary">
             <Home className="w-5 h-5" />
             <span className="text-xs">Home</span>
           </Link>
+          <Link to="/professional/jobs" className="flex flex-col items-center gap-1 text-muted-foreground relative">
+            <Briefcase className="w-5 h-5" />
+            <span className="text-xs">Jobs</span>
+            {dashboardData?.available_jobs > 0 && (
+              <span className="absolute -top-1 right-0 w-4 h-4 bg-primary text-primary-foreground text-[10px] rounded-full flex items-center justify-center">
+                {dashboardData.available_jobs}
+              </span>
+            )}
+          </Link>
+          <Link to="/professional/bids" className="flex flex-col items-center gap-1 text-muted-foreground relative">
+            <Send className="w-5 h-5" />
+            <span className="text-xs">Bids</span>
+            {dashboardData?.bids?.pending > 0 && (
+              <span className="absolute -top-1 right-0 w-4 h-4 bg-yellow-500 text-white text-[10px] rounded-full flex items-center justify-center">
+                {dashboardData.bids.pending}
+              </span>
+            )}
+          </Link>
           <Link to="/professional/bookings" className="flex flex-col items-center gap-1 text-muted-foreground">
             <Calendar className="w-5 h-5" />
             <span className="text-xs">Bookings</span>
-          </Link>
-          <Link to="/create-profile" className="flex flex-col items-center gap-1 text-muted-foreground">
-            <Settings className="w-5 h-5" />
-            <span className="text-xs">Profile</span>
           </Link>
         </div>
       </nav>
