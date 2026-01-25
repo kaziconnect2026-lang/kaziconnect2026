@@ -106,6 +106,27 @@ class UserResponse(BaseModel):
     created_at: datetime
     is_active: bool = True
 
+class BidStatus(str, Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+class Bid(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    job_id: str
+    professional_id: str
+    proposed_price: float
+    message: str
+    estimated_hours: Optional[float] = None
+    status: BidStatus = BidStatus.PENDING
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class BidCreate(BaseModel):
+    job_id: str
+    proposed_price: float
+    message: str
+    estimated_hours: Optional[float] = None
+
 class ProfessionalProfile(BaseModel):
     user_id: str
     profession: str
