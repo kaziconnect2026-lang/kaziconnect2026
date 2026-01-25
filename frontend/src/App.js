@@ -101,6 +101,11 @@ function App() {
                 <Bookings />
               </ProtectedRoute>
             } />
+            <Route path="/client/jobs/:jobId/bids" element={
+              <ProtectedRoute allowedRoles={["client"]}>
+                <JobBids />
+              </ProtectedRoute>
+            } />
             
             {/* Professional Routes */}
             <Route path="/professional" element={
@@ -116,6 +121,16 @@ function App() {
             <Route path="/professional/bookings" element={
               <ProtectedRoute allowedRoles={["professional"]}>
                 <Bookings />
+              </ProtectedRoute>
+            } />
+            <Route path="/professional/jobs" element={
+              <ProtectedRoute allowedRoles={["professional"]}>
+                <AvailableJobs />
+              </ProtectedRoute>
+            } />
+            <Route path="/professional/bids" element={
+              <ProtectedRoute allowedRoles={["professional"]}>
+                <MyBids />
               </ProtectedRoute>
             } />
             
