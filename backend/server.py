@@ -844,11 +844,42 @@ async def create_booking(booking_data: BookingCreate, user = Depends(get_current
         "scheduled_date": booking_data.scheduled_date.isoformat(),
         "status": BookingStatus.PENDING.value,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "completed_at": None
+        "completed_at": None,
+        "reviewed": False
     }
     
     await db.bookings.insert_one(booking_doc)
     return {"message": "Booking created successfully", "booking": {k: v for k, v in booking_doc.items() if k != "_id"}}
+
+@api_router.post("/bookings/rebook/{professional_id}")
+async def rebook_professional(professional_id: str, booking_data: BookingCreate, user = Depends(get_current_user)):
+    """Re-book a professional from a previous completed booking"""
+    if user["role"] != "client":
+        raise HTTPException(status_code=403, detail="Only clients can create bookings")
+    
+    # Verify professional exists
+    professional = await db.professional_profiles.find_one({"user_id": professional_id})
+    if not professional:
+        raise HTTPException(status_code=404, detail="Professional not found")
+    
+    booking_id = str(uuid.uuid4())
+    booking_doc = {
+        "id": booking_id,
+        "client_id": user["id"],
+        "professional_id": professional_id,
+        "job_id": booking_data.job_id,
+        "service_description": booking_data.service_description,
+        "scheduled_date": booking_data.scheduled_date.isoformat(),
+        "estimated_hours": booking_data.estimated_hours,
+        "agreed_price": booking_data.agreed_price,
+        "status": BookingStatus.PENDING.value,
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "completed_at": None,
+        "reviewed": False
+    }
+    
+    await db.bookings.insert_one(booking_doc)
+    return {"message": "Re-booking created successfully", "booking": {k: v for k, v in booking_doc.items() if k != "_id"}}
 
 @api_router.get("/bookings")
 async def get_bookings(status: Optional[str] = None, user = Depends(get_current_user)):
@@ -862,16 +893,51 @@ async def get_bookings(status: Optional[str] = None, user = Depends(get_current_
     
     bookings = await db.bookings.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
     
-    # Enrich with user data
+    # Enrich with user data and check if reviewed
     for booking in bookings:
         if user["role"] == "client":
             prof_user = await db.users.find_one({"id": booking["professional_id"]}, {"_id": 0, "password_hash": 0})
+            prof_profile = await db.professional_profiles.find_one({"user_id": booking["professional_id"]}, {"_id": 0})
             booking["professional"] = prof_user
+            booking["professional_profile"] = prof_profile
+            # Check if client has already reviewed this booking
+            existing_review = await db.reviews.find_one({"booking_id": booking["id"]})
+            booking["reviewed"] = existing_review is not None
         else:
             client = await db.users.find_one({"id": booking["client_id"]}, {"_id": 0, "password_hash": 0})
             booking["client"] = client
+        
+        # Get payment status
+        payment = await db.payments.find_one({"booking_id": booking["id"]}, {"_id": 0})
+        booking["payment"] = payment
     
     return bookings
+
+@api_router.get("/bookings/{booking_id}")
+async def get_booking_detail(booking_id: str, user = Depends(get_current_user)):
+    booking = await db.bookings.find_one({"id": booking_id}, {"_id": 0})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    
+    # Verify permission
+    if user["role"] == "client" and booking["client_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    if user["role"] == "professional" and booking["professional_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+    
+    # Enrich
+    prof_user = await db.users.find_one({"id": booking["professional_id"]}, {"_id": 0, "password_hash": 0})
+    client = await db.users.find_one({"id": booking["client_id"]}, {"_id": 0, "password_hash": 0})
+    booking["professional"] = prof_user
+    booking["client"] = client
+    
+    # Check if reviewed
+    existing_review = await db.reviews.find_one({"booking_id": booking["id"]})
+    booking["reviewed"] = existing_review is not None
+    if existing_review:
+        booking["review"] = {k: v for k, v in existing_review.items() if k != "_id"}
+    
+    return booking
 
 @api_router.put("/bookings/{booking_id}/status")
 async def update_booking_status(booking_id: str, status: BookingStatus, user = Depends(get_current_user)):
