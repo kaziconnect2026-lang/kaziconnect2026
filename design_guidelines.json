@@ -1,0 +1,125 @@
+{
+  "brand": {
+    "name": "Kazi Links",
+    "description": "The premier marketplace connecting East Africa's skilled professionals with clients. Empowering work, building trust.",
+    "values": ["Trust", "Hustle", "Community", "Precision"],
+    "tone": "Vibrant, Professional, Empowering, Urban"
+  },
+  "theme": {
+    "colors": {
+      "primary": {
+        "name": "Nairobi Gold",
+        "hex": "#F59E0B",
+        "tailwind": "amber-500",
+        "description": "Used for primary CTAs, active states, and brand highlights. Represents energy and opportunity."
+      },
+      "secondary": {
+        "name": "Rift Valley Slate",
+        "hex": "#0F172A",
+        "tailwind": "slate-900",
+        "description": "Used for headings, primary text, and footers. Represents stability and trust."
+      },
+      "accent": {
+        "name": "Savanna Green",
+        "hex": "#10B981",
+        "tailwind": "emerald-500",
+        "description": "Used for success states, earnings, and growth metrics."
+      },
+      "background": {
+        "light": "#FAFAF9",
+        "dark": "#0C0A09",
+        "description": "Warm Stone-50 for light mode to avoid clinical sterility. Deep Stone-950 for dark mode."
+      }
+    },
+    "typography": {
+      "headings": {
+        "family": "Outfit",
+        "weights": ["500", "700", "900"],
+        "usage": "All headings (h1-h6). Use tight tracking (-0.02em)."
+      },
+      "body": {
+        "family": "DM Sans",
+        "weights": ["400", "500"],
+        "usage": "Body text, inputs, buttons. High legibility."
+      }
+    },
+    "radius": "0.75rem",
+    "shadows": {
+      "card": "0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -1px rgba(0, 0, 0, 0.03)",
+      "hover": "0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04)"
+    }
+  },
+  "layout": {
+    "spacing_scale": "Relaxed. Use p-6 or p-8 where p-4 is standard.",
+    "container": "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+    "grid_system": {
+      "dashboard": "Bento Grid: Mix of col-span-1, col-span-2, and row-span-2 elements.",
+      "listings": "Responsive Grid: grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+    }
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-white hover:bg-primary/90 rounded-full px-8 py-6 font-bold shadow-lg hover:shadow-xl transition-all active:scale-95",
+      "secondary": "bg-white text-secondary border-2 border-slate-100 hover:border-primary/20 hover:bg-slate-50 rounded-full px-8 py-6 font-medium transition-all"
+    },
+    "cards": {
+      "style": "bg-white dark:bg-stone-900 border border-stone-200 dark:border-stone-800 rounded-2xl shadow-sm hover:shadow-md transition-all duration-300",
+      "content_padding": "p-6"
+    },
+    "inputs": {
+      "style": "h-12 rounded-xl border-stone-200 focus:border-primary focus:ring-primary/20 bg-stone-50/50"
+    },
+    "navigation": {
+      "mobile": "Fixed bottom bar, glassmorphism effect (backdrop-blur-lg bg-white/80), active icons in Primary color.",
+      "desktop": "Sticky sidebar or top header with generous whitespace."
+    }
+  },
+  "assets": {
+    "images": {
+      "hero_collage": [
+        "https://images.unsplash.com/photo-1621905252507-b35492cc74b4?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "https://images.unsplash.com/photo-1599641078447-229873aedbc8?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "https://images.pexels.com/photos/8486978/pexels-photo-8486978.jpeg"
+      ],
+      "categories": {
+        "electrician": "https://images.unsplash.com/photo-1621905252507-b35492cc74b4?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "barber": "https://images.unsplash.com/photo-1599641078447-229873aedbc8?crop=entropy&cs=srgb&fm=jpg&q=85",
+        "plumber": "https://images.pexels.com/photos/8486978/pexels-photo-8486978.jpeg",
+        "tattoo_artist": "https://images.unsplash.com/photo-1753259789341-808371092e19?crop=entropy&cs=srgb&fm=jpg&q=85"
+      }
+    },
+    "icons": "Use Lucide-React for UI icons. Use Phosphor Icons (Duotone) for feature highlights if available."
+  },
+  "pages": {
+    "landing": {
+      "strategy": "High energy. Hero section with 'Find the best pros in your area' + Search Bar. 'Trusted by' section. 'How it works' steps. Featured Categories with large imagery.",
+      "key_sections": ["Hero", "Search", "Categories", "Trust/Safety", "CTA for Pros"]
+    },
+    "auth": {
+      "strategy": "Split screen. Left side: Form (Clean, simple). Right side: Testimonial/Image of a happy professional (Use the Electrician image).",
+      "features": ["Role selection toggle (Client/Pro)", "M-Pesa integration logos"]
+    },
+    "client_dashboard": {
+      "strategy": "Clean, search-focused. 'Active Bookings' at top. 'Recommended Pros' horizontal scroll. 'Recent Activity' list.",
+      "widgets": ["BookingStatus", "ProSearch", "WalletBalance"]
+    },
+    "pro_dashboard": {
+      "strategy": "Data-rich but simple. 'Earnings' prominent card (Green). 'Upcoming Jobs' list. 'Performance' chart (Line chart).",
+      "widgets": ["EarningsSummary", "JobQueue", "RatingCard", "AvailabilityToggle"]
+    },
+    "admin_dashboard": {
+      "strategy": "Dense, tabular. Sidebar navigation. Data tables for Users, Transactions. Dispute resolution center.",
+      "widgets": ["UserGrowthChart", "CommissionTotal", "DisputeAlerts"]
+    }
+  },
+  "universal_guidelines": [
+    "Do NOT use generic gradients. Use solid, bold colors or subtle noise textures.",
+    "Ensure all text has sufficient contrast (APCA standards).",
+    "Use 'sonner' for all toast notifications.",
+    "All interactive elements must have `data-testid`.",
+    "Mobile-first: Ensure touch targets are at least 44px.",
+    "Use `framer-motion` for smooth page transitions and list entrance animations.",
+    "Avoid 'Lorem Ipsum'. Use realistic data (e.g., 'Juma Omondi', 'Nairobi West', 'KSh 2,500')."
+  ],
+  "instructions_to_main_agent": "You are building the frontend for Kazi Links. Follow this JSON strictly. Use the provided image URLs. Implement the 'Bento' grid for dashboards. Use the defined color palette in Tailwind config. Ensure the app feels 'African Modern' - vibrant, warm, and tech-forward."
+}
