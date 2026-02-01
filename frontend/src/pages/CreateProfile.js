@@ -29,7 +29,8 @@ export default function CreateProfile() {
     project_rate_max: "",
     pricing_type: "both",
     experience_years: "",
-    portfolio_images: []
+    portfolio_images: [],
+    id_number: ""
   });
   const [newSkill, setNewSkill] = useState("");
 
@@ -54,7 +55,8 @@ export default function CreateProfile() {
             project_rate_max: profileRes.data.project_rate_max?.toString() || "",
             pricing_type: profileRes.data.pricing_type || "both",
             experience_years: profileRes.data.experience_years?.toString() || "",
-            portfolio_images: profileRes.data.portfolio_images || []
+            portfolio_images: profileRes.data.portfolio_images || [],
+            id_number: profileRes.data.id_number || ""
           });
         } catch (error) {
           // No existing profile, that's fine
