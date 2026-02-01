@@ -363,7 +363,9 @@ async def register(user_data: UserCreate):
         "longitude": user_data.longitude,
         "password_hash": hash_password(user_data.password),
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "is_active": True
+        "is_active": True,
+        "wallet_balance": 0.0,
+        "profile_photo": None
     }
     
     await db.users.insert_one(user_doc)
@@ -381,7 +383,9 @@ async def register(user_data: UserCreate):
             location=user_data.location,
             latitude=user_data.latitude,
             longitude=user_data.longitude,
-            created_at=datetime.now(timezone.utc)
+            created_at=datetime.now(timezone.utc),
+            wallet_balance=0.0,
+            profile_photo=None
         )
     )
 
