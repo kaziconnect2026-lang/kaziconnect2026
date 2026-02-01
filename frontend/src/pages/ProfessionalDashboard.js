@@ -222,6 +222,22 @@ export default function ProfessionalDashboard() {
               <span>My Bookings</span>
             </Link>
             <Link 
+              to="/wallet" 
+              className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-colors"
+              data-testid="nav-wallet"
+            >
+              <Wallet className="w-5 h-5" />
+              <span>Wallet</span>
+            </Link>
+            <Link 
+              to="/notifications" 
+              className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-colors"
+              data-testid="nav-notifications"
+            >
+              <Bell className="w-5 h-5" />
+              <span>Notifications</span>
+            </Link>
+            <Link 
               to="/create-profile" 
               className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-colors"
               data-testid="nav-profile"
