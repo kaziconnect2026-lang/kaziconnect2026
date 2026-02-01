@@ -284,6 +284,23 @@ export default function CreateProfile() {
                 />
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="id_number">National ID Number</Label>
+                <Input
+                  id="id_number"
+                  name="id_number"
+                  type="text"
+                  placeholder="e.g., 12345678"
+                  value={formData.id_number}
+                  onChange={handleChange}
+                  className="h-12"
+                  data-testid="id-number-input"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Your ID is used for verification purposes and helps build trust with clients
+                </p>
+              </div>
+
               <Button 
                 type="submit" 
                 className="w-full h-12 rounded-xl bg-primary hover:bg-primary/90"
