@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { 
   Home, Calendar, DollarSign, Star, TrendingUp, Clock,
   User, LogOut, Menu, X, Settings, Briefcase, ChevronRight,
-  AlertCircle, Send, Eye, BarChart3
+  AlertCircle, Send, Eye, BarChart3, Wallet, Bell
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
