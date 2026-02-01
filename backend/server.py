@@ -793,8 +793,12 @@ async def get_jobs(
     return jobs
 
 @api_router.get("/jobs/available")
-async def get_available_jobs(category: Optional[str] = None, user = Depends(get_current_user)):
-    """Get available jobs for professionals to bid on - filtered by their profession category"""
+async def get_available_jobs(
+    category: Optional[str] = None, 
+    location: Optional[str] = None,
+    user = Depends(get_current_user)
+):
+    """Get available jobs for professionals to bid on - filtered by their profession category and location"""
     if user["role"] != "professional":
         raise HTTPException(status_code=403, detail="Only professionals can view available jobs")
     
@@ -811,7 +815,25 @@ async def get_available_jobs(category: Optional[str] = None, user = Depends(get_
     elif category:
         query["category"] = {"$regex": category, "$options": "i"}
     
+    # Filter by location if user has location set
+    user_location = user.get("location")
+    if location:
+        query["location"] = {"$regex": location, "$options": "i"}
+    elif user_location:
+        # Show jobs in user's area first (but don't exclude others)
+        pass
+    
     jobs = await db.jobs.find(query, {"_id": 0}).sort("created_at", -1).to_list(100)
+    
+    # Sort jobs by location proximity if user has location
+    if user_location:
+        def location_match_score(job):
+            job_loc = job.get("location", "").lower()
+            user_loc = user_location.lower()
+            if user_loc in job_loc or job_loc in user_loc:
+                return 0  # Same location - highest priority
+            return 1
+        jobs.sort(key=location_match_score)
     
     # Enrich with client info and check if user already bid
     for job in jobs:
@@ -821,8 +843,11 @@ async def get_available_jobs(category: Optional[str] = None, user = Depends(get_
         existing_bid = await db.bids.find_one({"job_id": job["id"], "professional_id": user["id"]})
         job["has_bid"] = existing_bid is not None
         job["bid_count"] = await db.bids.count_documents({"job_id": job["id"]})
+        # Calculate location match
+        if user_location:
+            job["location_match"] = user_location.lower() in job.get("location", "").lower()
     
-    return {"jobs": jobs, "profession": profile.get("profession") if profile else None}
+    return {"jobs": jobs, "profession": profile.get("profession") if profile else None, "user_location": user_location}
 
 @api_router.get("/jobs/{job_id}")
 async def get_job_detail(job_id: str, user = Depends(get_current_user)):
