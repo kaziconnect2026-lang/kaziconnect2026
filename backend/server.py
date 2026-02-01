@@ -105,6 +105,45 @@ class UserResponse(BaseModel):
     longitude: Optional[float] = None
     created_at: datetime
     is_active: bool = True
+    wallet_balance: float = 0.0
+    profile_photo: Optional[str] = None
+
+class UserProfileUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    location: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    profile_photo: Optional[str] = None
+
+# Wallet Models
+class WalletTransaction(BaseModel):
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    type: str  # "deposit" or "withdrawal"
+    amount: float
+    status: str = "completed"  # "pending", "completed", "failed"
+    reference: Optional[str] = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class DepositRequest(BaseModel):
+    amount: float
+    phone_number: str
+
+class WithdrawalRequest(BaseModel):
+    amount: float
+    phone_number: str
+
+# Push Notification Models
+class PushSubscription(BaseModel):
+    user_id: str
+    endpoint: str
+    keys: dict
+    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+
+class PushSubscriptionCreate(BaseModel):
+    endpoint: str
+    keys: dict
 
 class BidStatus(str, Enum):
     PENDING = "pending"
@@ -138,6 +177,7 @@ class ProfessionalProfile(BaseModel):
     pricing_type: PricingType
     experience_years: int
     portfolio_images: List[str] = []
+    id_number: Optional[str] = None  # National ID number
     availability: bool = True
     rating: float = 0.0
     total_reviews: int = 0
