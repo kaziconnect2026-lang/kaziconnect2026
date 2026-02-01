@@ -194,6 +194,7 @@ class ProfessionalProfileCreate(BaseModel):
     pricing_type: PricingType
     experience_years: int
     portfolio_images: List[str] = []
+    id_number: Optional[str] = None  # National ID number
 
 class JobPost(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
