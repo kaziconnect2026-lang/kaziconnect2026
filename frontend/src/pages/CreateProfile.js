@@ -100,7 +100,8 @@ export default function CreateProfile() {
         project_rate_max: formData.project_rate_max ? parseFloat(formData.project_rate_max) : null,
         pricing_type: formData.pricing_type,
         experience_years: parseInt(formData.experience_years) || 0,
-        portfolio_images: formData.portfolio_images
+        portfolio_images: formData.portfolio_images,
+        id_number: formData.id_number || null
       };
 
       if (existingProfile) {
