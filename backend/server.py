@@ -415,7 +415,9 @@ async def login(credentials: UserLogin):
             location=user.get("location"),
             latitude=user.get("latitude"),
             longitude=user.get("longitude"),
-            created_at=created_at
+            created_at=created_at,
+            wallet_balance=user.get("wallet_balance", 0.0),
+            profile_photo=user.get("profile_photo")
         )
     )
 
@@ -434,8 +436,192 @@ async def get_me(user = Depends(get_current_user)):
         location=user.get("location"),
         latitude=user.get("latitude"),
         longitude=user.get("longitude"),
-        created_at=created_at
+        created_at=created_at,
+        wallet_balance=user.get("wallet_balance", 0.0),
+        profile_photo=user.get("profile_photo")
     )
+
+# ============= USER PROFILE ENDPOINTS =============
+@api_router.put("/users/profile")
+async def update_user_profile(profile_update: UserProfileUpdate, user = Depends(get_current_user)):
+    """Update user profile including photo"""
+    update_data = {k: v for k, v in profile_update.model_dump().items() if v is not None}
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No data to update")
+    
+    await db.users.update_one({"id": user["id"]}, {"$set": update_data})
+    return {"message": "Profile updated successfully"}
+
+@api_router.post("/users/profile-photo")
+async def upload_profile_photo(photo_url: str, user = Depends(get_current_user)):
+    """Store profile photo URL (base64 data URL or external URL)"""
+    await db.users.update_one({"id": user["id"]}, {"$set": {"profile_photo": photo_url}})
+    return {"message": "Profile photo updated", "photo_url": photo_url}
+
+# ============= WALLET ENDPOINTS =============
+@api_router.get("/wallet/balance")
+async def get_wallet_balance(user = Depends(get_current_user)):
+    """Get user's wallet balance"""
+    balance = user.get("wallet_balance", 0.0)
+    return {"balance": balance}
+
+@api_router.get("/wallet/transactions")
+async def get_wallet_transactions(user = Depends(get_current_user)):
+    """Get user's wallet transaction history"""
+    transactions = await db.wallet_transactions.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    return transactions
+
+@api_router.post("/wallet/deposit")
+async def deposit_to_wallet(deposit: DepositRequest, user = Depends(get_current_user)):
+    """Deposit money to wallet (M-Pesa - MOCKED)"""
+    if deposit.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+    if deposit.amount > 100000:
+        raise HTTPException(status_code=400, detail="Maximum deposit is KSh 100,000")
+    
+    # Create transaction record
+    transaction_id = str(uuid.uuid4())
+    transaction_doc = {
+        "id": transaction_id,
+        "user_id": user["id"],
+        "type": "deposit",
+        "amount": deposit.amount,
+        "status": "completed",  # MOCKED - instant success
+        "reference": f"MPESA-DEP-{transaction_id[:8].upper()}",
+        "phone_number": deposit.phone_number,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.wallet_transactions.insert_one(transaction_doc)
+    
+    # Update wallet balance
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$inc": {"wallet_balance": deposit.amount}}
+    )
+    
+    # Get new balance
+    updated_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    
+    return {
+        "message": "Deposit successful (MOCKED)",
+        "transaction_id": transaction_id,
+        "amount": deposit.amount,
+        "new_balance": updated_user.get("wallet_balance", 0.0)
+    }
+
+@api_router.post("/wallet/withdraw")
+async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get_current_user)):
+    """Withdraw money from wallet (M-Pesa - MOCKED)"""
+    if withdrawal.amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+    
+    current_balance = user.get("wallet_balance", 0.0)
+    if withdrawal.amount > current_balance:
+        raise HTTPException(status_code=400, detail="Insufficient wallet balance")
+    
+    # Create transaction record
+    transaction_id = str(uuid.uuid4())
+    transaction_doc = {
+        "id": transaction_id,
+        "user_id": user["id"],
+        "type": "withdrawal",
+        "amount": withdrawal.amount,
+        "status": "completed",  # MOCKED - instant success
+        "reference": f"MPESA-WD-{transaction_id[:8].upper()}",
+        "phone_number": withdrawal.phone_number,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.wallet_transactions.insert_one(transaction_doc)
+    
+    # Update wallet balance
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$inc": {"wallet_balance": -withdrawal.amount}}
+    )
+    
+    # Get new balance
+    updated_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
+    
+    return {
+        "message": "Withdrawal successful (MOCKED) - Sent to M-Pesa",
+        "transaction_id": transaction_id,
+        "amount": withdrawal.amount,
+        "new_balance": updated_user.get("wallet_balance", 0.0)
+    }
+
+# ============= PUSH NOTIFICATION ENDPOINTS =============
+@api_router.post("/notifications/subscribe")
+async def subscribe_to_push(subscription: PushSubscriptionCreate, user = Depends(get_current_user)):
+    """Subscribe user to push notifications"""
+    # Check if subscription exists
+    existing = await db.push_subscriptions.find_one({
+        "user_id": user["id"],
+        "endpoint": subscription.endpoint
+    })
+    
+    if existing:
+        return {"message": "Already subscribed"}
+    
+    sub_doc = {
+        "user_id": user["id"],
+        "endpoint": subscription.endpoint,
+        "keys": subscription.keys,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.push_subscriptions.insert_one(sub_doc)
+    return {"message": "Successfully subscribed to notifications"}
+
+@api_router.delete("/notifications/unsubscribe")
+async def unsubscribe_from_push(endpoint: str, user = Depends(get_current_user)):
+    """Unsubscribe from push notifications"""
+    await db.push_subscriptions.delete_one({
+        "user_id": user["id"],
+        "endpoint": endpoint
+    })
+    return {"message": "Unsubscribed from notifications"}
+
+async def send_push_notification(user_id: str, title: str, body: str, data: dict = None):
+    """Send push notification to a user (helper function)"""
+    # Get user's subscriptions
+    subscriptions = await db.push_subscriptions.find({"user_id": user_id}, {"_id": 0}).to_list(10)
+    
+    # Store notification in database
+    notification_doc = {
+        "id": str(uuid.uuid4()),
+        "user_id": user_id,
+        "title": title,
+        "body": body,
+        "data": data or {},
+        "read": False,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    await db.notifications.insert_one(notification_doc)
+    
+    # In production, you would send to push service here
+    # For now, we just store in database
+    return len(subscriptions)
+
+@api_router.get("/notifications")
+async def get_notifications(user = Depends(get_current_user)):
+    """Get user's notifications"""
+    notifications = await db.notifications.find(
+        {"user_id": user["id"]}, {"_id": 0}
+    ).sort("created_at", -1).to_list(50)
+    return notifications
+
+@api_router.put("/notifications/{notification_id}/read")
+async def mark_notification_read(notification_id: str, user = Depends(get_current_user)):
+    """Mark notification as read"""
+    await db.notifications.update_one(
+        {"id": notification_id, "user_id": user["id"]},
+        {"$set": {"read": True}}
+    )
+    return {"message": "Notification marked as read"}
 
 # ============= CATEGORIES ENDPOINT =============
 @api_router.get("/categories")
