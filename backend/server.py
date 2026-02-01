@@ -750,6 +750,21 @@ async def create_job(job_data: JobPostCreate, user = Depends(get_current_user)):
     }
     
     await db.jobs.insert_one(job_doc)
+    
+    # Send push notifications to professionals in matching category
+    matching_profiles = await db.professional_profiles.find({
+        "profession": {"$regex": job_data.category, "$options": "i"},
+        "availability": True
+    }).to_list(100)
+    
+    for profile in matching_profiles:
+        await send_push_notification(
+            user_id=profile["user_id"],
+            title="New Job Alert! 🔔",
+            body=f"New {job_data.category} job posted: {job_data.title} - KSh {job_data.budget}",
+            data={"type": "new_job", "job_id": job_id}
+        )
+    
     return {"message": "Job posted successfully", "job": {k: v for k, v in job_doc.items() if k != "_id"}}
 
 @api_router.get("/jobs")
