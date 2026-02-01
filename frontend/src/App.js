@@ -136,6 +136,18 @@ function App() {
               </ProtectedRoute>
             } />
             
+            {/* Shared Routes (both client and professional) */}
+            <Route path="/wallet" element={
+              <ProtectedRoute allowedRoles={["client", "professional"]}>
+                <WalletPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/notifications" element={
+              <ProtectedRoute allowedRoles={["client", "professional"]}>
+                <NotificationsPage />
+              </ProtectedRoute>
+            } />
+            
             {/* Admin Routes */}
             <Route path="/admin" element={
               <ProtectedRoute allowedRoles={["admin"]}>
