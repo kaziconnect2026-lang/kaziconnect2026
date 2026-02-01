@@ -145,6 +145,14 @@ export default function ProfessionalDashboard() {
               <Calendar className="w-5 h-5" />
               <span>My Bookings</span>
             </Link>
+            <Link to="/wallet" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted">
+              <Wallet className="w-5 h-5" />
+              <span>Wallet</span>
+            </Link>
+            <Link to="/notifications" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted">
+              <Bell className="w-5 h-5" />
+              <span>Notifications</span>
+            </Link>
             <Link to="/create-profile" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted">
               <Settings className="w-5 h-5" />
               <span>Edit Profile</span>
