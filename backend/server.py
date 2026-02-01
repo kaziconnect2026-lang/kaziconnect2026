@@ -1068,6 +1068,14 @@ async def accept_bid(bid_id: str, user = Depends(get_current_user)):
     
     await db.bookings.insert_one(booking_doc)
     
+    # Send push notification to professional
+    await send_push_notification(
+        user_id=bid["professional_id"],
+        title="Bid Accepted! 🎉",
+        body=f"Your bid for '{job['title']}' has been accepted! Check your bookings.",
+        data={"type": "bid_accepted", "booking_id": booking_id}
+    )
+    
     return {
         "message": "Bid accepted and booking created",
         "booking": {k: v for k, v in booking_doc.items() if k != "_id"}
