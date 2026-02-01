@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { 
   Search, Plus, Calendar, DollarSign, Clock, 
   MapPin, Star, ChevronRight, LogOut, Home,
-  FileText, User, Bell, Menu, X
+  FileText, User, Bell, Menu, X, Wallet
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
