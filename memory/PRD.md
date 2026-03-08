@@ -7,7 +7,7 @@ Build a platform named "Kazi Links" where clients can find and hire skilled prof
 - **Frontend**: React (Progressive Web App), TailwindCSS, Shadcn/UI
 - **Backend**: FastAPI, MongoDB
 - **Authentication**: JWT (JSON Web Tokens)
-- **AI**: Gemini 3 Flash for professional matching (via Emergent LLM Key)
+- **AI**: Gemini 3 Flash for professional matching & bid suggestions (via Emergent LLM Key)
 - **Payments**: M-Pesa with escrow (MOCKED for demo)
 
 ## Platform Commission
@@ -15,44 +15,36 @@ Build a platform named "Kazi Links" where clients can find and hire skilled prof
 - Professionals receive 80% of agreed price
 - Funds held in escrow until job completion
 
-## User Roles
-
-### Clients
-- Register and login
-- Post jobs with category, budget, location
-- Search professionals by category, rating
-- Use AI matching to find best professionals
-- View and accept/reject bids from professionals
-- Make payments (escrow)
-- Release payment on job completion
-- Rate and review professionals
-- Re-book professionals from completed jobs
-
-### Professionals
-- Register and create profile
-- Set skills, bio, hourly/project rates
-- Browse available jobs
-- Submit bids with proposed price and message
-- Track submitted bids (pending/accepted/rejected)
-- Manage bookings
-- Start work and mark jobs complete
-- View earnings dashboard with:
-  - Total earnings
-  - Pending earnings
-  - Weekly earnings chart
-  - Platform commission breakdown
-
-### Admin
-- Platform oversight
-- User management
-- Transaction monitoring
-
-## Features Implemented (January 2026)
+## Features Implemented (February 2026)
 
 ### ✅ Core Authentication
 - User registration with role selection (client/professional)
 - JWT-based login
 - Protected routes per role
+
+### ✅ Wallet System (NEW)
+- **Deposit**: Add funds to wallet via M-Pesa (MOCKED)
+- **Withdrawal**: Withdraw to M-Pesa (MOCKED)
+- **Balance tracking**: Real-time wallet balance
+- **Transaction history**: Full deposit/withdrawal history
+
+### ✅ Professional Profile
+- Create/edit profile with profession, bio, skills, rates
+- **ID Number field**: For verification purposes
+- Experience years and portfolio
+- Availability toggle
+- Rating and review tracking
+
+### ✅ Job Filtering by Profession (NEW)
+- Professionals only see jobs matching their category
+- Plumber sees plumbing jobs, electrician sees electrician jobs
+- Geolocation-based job matching (location priority)
+
+### ✅ Bidding System
+- Professionals browse available jobs (filtered by their category)
+- Submit bids with proposed price, hours, message
+- **AI Bid Suggestions**: Gemini 3 Flash generates competitive bid recommendations
+- Track bid status (pending/accepted/rejected)
 
 ### ✅ Client Journey
 - Post jobs with title, description, category, budget, location
@@ -63,25 +55,18 @@ Build a platform named "Kazi Links" where clients can find and hire skilled prof
 - Rate professionals (1-5 stars with comment)
 - Re-book professionals from completed bookings
 
-### ✅ Professional Journey
-- Create profile with profession, bio, skills, rates
-- Browse available jobs by category
-- Submit bids with proposed price, estimated hours, message
-- Track bid status (pending/accepted/rejected)
-- Manage bookings (start work, mark complete)
-- View earnings dashboard with weekly chart
-- See platform commission breakdown
+### ✅ Push Notifications (NEW)
+- Subscribe/unsubscribe from push notifications
+- Alerts for new jobs in professional's category
+- Alerts when bid is accepted
+- In-app notification center
 
-### ✅ AI Matching
-- Gemini 3 Flash integration for intelligent professional matching
-- Considers skills, rating, experience, location, pricing
-- Returns match scores with reasons
-
-### ✅ Payment System (MOCKED)
-- M-Pesa STK push simulation
-- Escrow system
-- Payment release to professionals
-- Commission calculation
+### ✅ Earnings Dashboard
+- Total earnings tracking
+- Pending earnings (in escrow)
+- Weekly earnings chart
+- Platform commission breakdown (20%)
+- Bid statistics
 
 ## API Endpoints
 
@@ -90,11 +75,24 @@ Build a platform named "Kazi Links" where clients can find and hire skilled prof
 - `POST /api/auth/login` - User login
 - `GET /api/auth/me` - Get current user
 
-### Categories
-- `GET /api/categories` - List professional categories
+### User Profile
+- `PUT /api/users/profile` - Update user profile
+- `POST /api/users/profile-photo` - Update profile photo
+
+### Wallet (NEW)
+- `GET /api/wallet/balance` - Get wallet balance
+- `GET /api/wallet/transactions` - Get transaction history
+- `POST /api/wallet/deposit` - Deposit via M-Pesa (MOCKED)
+- `POST /api/wallet/withdraw` - Withdraw to M-Pesa (MOCKED)
+
+### Notifications (NEW)
+- `POST /api/notifications/subscribe` - Subscribe to push
+- `DELETE /api/notifications/unsubscribe` - Unsubscribe
+- `GET /api/notifications` - Get notifications list
+- `PUT /api/notifications/{id}/read` - Mark as read
 
 ### Professionals
-- `POST /api/professionals/profile` - Create profile
+- `POST /api/professionals/profile` - Create profile (includes id_number)
 - `GET /api/professionals/profile` - Get own profile
 - `PUT /api/professionals/profile` - Update profile
 - `PUT /api/professionals/availability` - Toggle availability
@@ -102,23 +100,25 @@ Build a platform named "Kazi Links" where clients can find and hire skilled prof
 - `GET /api/professionals/{id}` - Get professional details
 
 ### Jobs
-- `POST /api/jobs` - Post new job (client)
+- `POST /api/jobs` - Post new job (sends notifications to matching pros)
 - `GET /api/jobs` - Get user's jobs
-- `GET /api/jobs/available` - Get available jobs (professional)
+- `GET /api/jobs/available` - Get available jobs (filtered by profession & location)
 - `GET /api/jobs/{id}` - Get job details
 
 ### Bids
-- `POST /api/bids` - Submit bid (professional)
-- `GET /api/bids/my` - Get own bids (professional)
-- `GET /api/bids/job/{job_id}` - Get bids for job (client)
-- `PUT /api/bids/{id}/accept` - Accept bid (client)
-- `PUT /api/bids/{id}/reject` - Reject bid (client)
+- `POST /api/bids` - Submit bid
+- `POST /api/bids/ai-suggest` - Get AI bid suggestion (NEW)
+- `GET /api/bids/my` - Get own bids
+- `GET /api/bids/job/{job_id}` - Get bids for job
+- `PUT /api/bids/{id}/accept` - Accept bid (sends notification)
+- `PUT /api/bids/{id}/reject` - Reject bid
 
 ### Bookings
 - `POST /api/bookings` - Create booking
 - `POST /api/bookings/rebook/{professional_id}` - Re-book professional
 - `GET /api/bookings` - Get user's bookings
-- `PUT /api/bookings/{id}/status` - Update booking status
+- `GET /api/bookings/{id}` - Get booking details
+- `PUT /api/bookings/{id}/status` - Update status
 
 ### Payments
 - `POST /api/payments/initiate` - Initiate payment (MOCKED)
@@ -136,25 +136,24 @@ Build a platform named "Kazi Links" where clients can find and hire skilled prof
 - `GET /api/dashboard/client` - Client dashboard data
 - `GET /api/dashboard/professional` - Professional dashboard data
 
-### Admin
-- `GET /api/admin/stats` - Platform statistics
-- `GET /api/admin/users` - All users
-- `GET /api/admin/transactions` - All transactions
-
 ## Database Collections
-- `users` - User accounts
-- `professional_profiles` - Professional details
+- `users` - User accounts (includes wallet_balance, profile_photo)
+- `professional_profiles` - Professional details (includes id_number)
 - `jobs` - Job postings
 - `bids` - Bid submissions
 - `bookings` - Service bookings
 - `payments` - Payment records
 - `reviews` - Client reviews
+- `wallet_transactions` - Deposit/withdrawal history (NEW)
+- `push_subscriptions` - Push notification subscriptions (NEW)
+- `notifications` - In-app notifications (NEW)
 
 ## File Structure
 ```
 /app/
 ├── backend/
 │   ├── server.py - All API endpoints
+│   ├── tests/ - Pytest test files
 │   ├── .env - Environment variables
 │   └── requirements.txt - Python dependencies
 └── frontend/
@@ -170,39 +169,50 @@ Build a platform named "Kazi Links" where clients can find and hire skilled prof
     │   │   ├── SearchProfessionals.js
     │   │   ├── ProfessionalProfile.js
     │   │   ├── PostJob.js
-    │   │   ├── CreateProfile.js
+    │   │   ├── CreateProfile.js (with ID number)
     │   │   ├── Bookings.js
-    │   │   ├── AvailableJobs.js - Professional job browsing
-    │   │   ├── MyBids.js - Professional bid tracking
-    │   │   └── JobBids.js - Client views bids
+    │   │   ├── AvailableJobs.js (AI suggestions)
+    │   │   ├── MyBids.js
+    │   │   ├── JobBids.js
+    │   │   ├── WalletPage.js (NEW)
+    │   │   └── NotificationsPage.js (NEW)
     │   └── components/ui/ - Shadcn components
     └── .env - Frontend environment variables
 ```
+
+## MOCKED APIs
+- **M-Pesa Wallet Deposit**: `/api/wallet/deposit` - Instant success
+- **M-Pesa Wallet Withdrawal**: `/api/wallet/withdraw` - Instant success  
+- **M-Pesa Payment**: `/api/payments/initiate` - Goes directly to escrow
 
 ## Roadmap (Backlog)
 
 ### P1 - High Priority
 - Admin dashboard implementation
 - Real M-Pesa integration
-- Location-based search with geolocation
-- Push notifications
+- Profile photo upload (currently URL only)
+- Real push notifications via FCM
 
 ### P2 - Medium Priority
-- Chat/messaging between clients and professionals
+- In-app messaging/chat between clients and professionals
 - Portfolio image uploads
 - Advanced search filters
 - Email notifications
+- Service packages with fixed prices
 
 ### P3 - Future
 - Native mobile app (React Native)
 - Subscription plans for professionals
 - Analytics dashboard
-- Multi-language support
+- Multi-language support (Swahili + English)
+- Referral program
+- Dispute resolution system
 
 ## Testing
 - Backend: pytest with comprehensive API tests
-- Frontend: Manual testing with Playwright screenshots
+- Frontend: Playwright screenshots and manual testing
 - Test reports: `/app/test_reports/iteration_*.json`
 
-## MOCKED APIs
-- **M-Pesa Payment**: `/api/payments/initiate` - STK push is mocked, payments go directly to escrow status
+## Test Results (Latest)
+- **Backend**: 100% (21/21 new feature tests passed)
+- **Frontend**: 100% (All major flows working)
