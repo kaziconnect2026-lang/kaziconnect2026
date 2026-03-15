@@ -105,6 +105,11 @@ function App() {
                 <Bookings />
               </ProtectedRoute>
             } />
+            <Route path="/client/profile" element={
+              <ProtectedRoute allowedRoles={["client"]}>
+                <ClientProfile />
+              </ProtectedRoute>
+            } />
             <Route path="/client/jobs/:jobId/bids" element={
               <ProtectedRoute allowedRoles={["client"]}>
                 <JobBids />
