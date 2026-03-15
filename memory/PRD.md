@@ -187,15 +187,23 @@ All M-Pesa operations are mocked with instant success:
 
 ## Roadmap (Backlog)
 
+### P0 - Critical (Refactoring)
+- Backend `server.py` refactoring (2000+ lines) into modular structure:
+  - `/app/backend/routes/` - API endpoints
+  - `/app/backend/models/` - Pydantic models
+  - `/app/backend/services/` - Business logic
+
 ### P1 - High Priority
-- Real M-Pesa integration
+- Real M-Pesa integration (deposits)
 - Export ledger to CSV/PDF
 - Real push notifications via FCM
+- ID photo upload for professional verification
 
 ### P2 - Medium Priority
 - In-app messaging/chat
 - Email notifications
 - Advanced reporting
+- Map-based geolocation search
 
 ### P3 - Future
 - Native mobile app
