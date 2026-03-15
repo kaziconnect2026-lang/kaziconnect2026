@@ -172,16 +172,9 @@ export default function SearchProfessionals() {
                   cat.name.toLowerCase().includes(categorySearch.toLowerCase())
                 );
                 if (filteredCats.length === 0) return null;
-                return (
-                  <div key={groupName}>
-                    <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 sticky top-[52px]">
-                      {groupName}
-                    </div>
-                    {filteredCats.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
-                    ))}
-                  </div>
-                );
+                return filteredCats.map((cat) => (
+                  <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                ));
               })}
               {categorySearch && Object.values(categories).flat().filter(cat => 
                 cat.name.toLowerCase().includes(categorySearch.toLowerCase())
