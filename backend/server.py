@@ -1482,41 +1482,255 @@ async def get_admin_stats(user = Depends(get_current_user)):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     
+    # User stats
     total_users = await db.users.count_documents({})
     total_clients = await db.users.count_documents({"role": "client"})
     total_professionals = await db.users.count_documents({"role": "professional"})
-    total_jobs = await db.jobs.count_documents({})
-    total_bookings = await db.bookings.count_documents({})
-    completed_bookings = await db.bookings.count_documents({"status": "completed"})
+    active_professionals = await db.professional_profiles.count_documents({"availability": True})
     
-    # Calculate total revenue
-    payments = await db.payments.find({"status": PaymentStatus.RELEASED.value}).to_list(10000)
-    total_revenue = sum(p["platform_fee"] for p in payments)
-    total_transactions = sum(p["amount"] for p in payments)
+    # Job stats
+    total_jobs = await db.jobs.count_documents({})
+    open_jobs = await db.jobs.count_documents({"status": "open"})
+    matched_jobs = await db.jobs.count_documents({"status": "matched"})
+    completed_jobs = await db.jobs.count_documents({"status": "completed"})
+    
+    # Booking stats
+    total_bookings = await db.bookings.count_documents({})
+    pending_bookings = await db.bookings.count_documents({"status": "pending"})
+    confirmed_bookings = await db.bookings.count_documents({"status": "confirmed"})
+    in_progress_bookings = await db.bookings.count_documents({"status": "in_progress"})
+    completed_bookings = await db.bookings.count_documents({"status": "completed"})
+    cancelled_bookings = await db.bookings.count_documents({"status": "cancelled"})
+    
+    # Bid stats
+    total_bids = await db.bids.count_documents({})
+    pending_bids = await db.bids.count_documents({"status": "pending"})
+    accepted_bids = await db.bids.count_documents({"status": "accepted"})
+    rejected_bids = await db.bids.count_documents({"status": "rejected"})
+    
+    # Calculate total revenue and transactions
+    all_payments = await db.payments.find({}, {"_id": 0}).to_list(10000)
+    released_payments = [p for p in all_payments if p["status"] == PaymentStatus.RELEASED.value]
+    escrow_payments = [p for p in all_payments if p["status"] == PaymentStatus.ESCROW.value]
+    
+    total_revenue = sum(p["platform_fee"] for p in released_payments)
+    total_transactions = sum(p["amount"] for p in released_payments)
+    escrow_balance = sum(p["amount"] for p in escrow_payments)
+    
+    # Wallet stats
+    wallet_deposits = await db.wallet_transactions.find({"type": "deposit", "status": "completed"}).to_list(10000)
+    wallet_withdrawals = await db.wallet_transactions.find({"type": "withdrawal", "status": "completed"}).to_list(10000)
+    total_deposits = sum(t["amount"] for t in wallet_deposits)
+    total_withdrawals = sum(t["amount"] for t in wallet_withdrawals)
+    
+    # Review stats
+    total_reviews = await db.reviews.count_documents({})
+    all_reviews = await db.reviews.find({}, {"rating": 1, "_id": 0}).to_list(10000)
+    avg_platform_rating = sum(r["rating"] for r in all_reviews) / len(all_reviews) if all_reviews else 0
     
     return {
-        "total_users": total_users,
-        "total_clients": total_clients,
-        "total_professionals": total_professionals,
-        "total_jobs": total_jobs,
-        "total_bookings": total_bookings,
-        "completed_bookings": completed_bookings,
-        "total_revenue": total_revenue,
-        "total_transactions": total_transactions,
-        "platform_fee_percentage": PLATFORM_FEE_PERCENTAGE
+        "users": {
+            "total": total_users,
+            "clients": total_clients,
+            "professionals": total_professionals,
+            "active_professionals": active_professionals
+        },
+        "jobs": {
+            "total": total_jobs,
+            "open": open_jobs,
+            "matched": matched_jobs,
+            "completed": completed_jobs
+        },
+        "bookings": {
+            "total": total_bookings,
+            "pending": pending_bookings,
+            "confirmed": confirmed_bookings,
+            "in_progress": in_progress_bookings,
+            "completed": completed_bookings,
+            "cancelled": cancelled_bookings
+        },
+        "bids": {
+            "total": total_bids,
+            "pending": pending_bids,
+            "accepted": accepted_bids,
+            "rejected": rejected_bids,
+            "acceptance_rate": round((accepted_bids / total_bids * 100) if total_bids > 0 else 0, 1)
+        },
+        "financials": {
+            "total_transactions": total_transactions,
+            "platform_revenue": total_revenue,
+            "escrow_balance": escrow_balance,
+            "platform_fee_percentage": PLATFORM_FEE_PERCENTAGE,
+            "total_wallet_deposits": total_deposits,
+            "total_wallet_withdrawals": total_withdrawals
+        },
+        "reviews": {
+            "total": total_reviews,
+            "average_rating": round(avg_platform_rating, 2)
+        }
+    }
+
+@api_router.get("/admin/dashboard")
+async def get_admin_dashboard(user = Depends(get_current_user)):
+    """Comprehensive admin dashboard data"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    now = datetime.now(timezone.utc)
+    
+    # Get stats from last 30 days
+    thirty_days_ago = (now - timedelta(days=30)).isoformat()
+    seven_days_ago = (now - timedelta(days=7)).isoformat()
+    
+    # Recent activity
+    recent_users = await db.users.find(
+        {"created_at": {"$gte": thirty_days_ago}}, 
+        {"_id": 0, "password_hash": 0}
+    ).sort("created_at", -1).to_list(10)
+    
+    recent_jobs = await db.jobs.find(
+        {"created_at": {"$gte": thirty_days_ago}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(10)
+    
+    recent_bookings = await db.bookings.find(
+        {"created_at": {"$gte": thirty_days_ago}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(10)
+    
+    # Enrich recent bookings
+    for booking in recent_bookings:
+        client = await db.users.find_one({"id": booking["client_id"]}, {"name": 1, "_id": 0})
+        pro = await db.users.find_one({"id": booking["professional_id"]}, {"name": 1, "_id": 0})
+        booking["client_name"] = client["name"] if client else "Unknown"
+        booking["professional_name"] = pro["name"] if pro else "Unknown"
+    
+    recent_payments = await db.payments.find(
+        {"created_at": {"$gte": thirty_days_ago}},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(10)
+    
+    # Daily revenue for last 7 days
+    daily_revenue = []
+    daily_labels = []
+    daily_bookings = []
+    daily_users = []
+    
+    for i in range(7):
+        day = now - timedelta(days=6-i)
+        day_start = day.replace(hour=0, minute=0, second=0, microsecond=0)
+        day_end = day.replace(hour=23, minute=59, second=59, microsecond=999999)
+        
+        # Revenue
+        day_payments = await db.payments.find({
+            "status": PaymentStatus.RELEASED.value,
+            "released_at": {"$gte": day_start.isoformat(), "$lte": day_end.isoformat()}
+        }).to_list(1000)
+        daily_revenue.append(sum(p["platform_fee"] for p in day_payments))
+        
+        # Bookings
+        day_bookings = await db.bookings.count_documents({
+            "created_at": {"$gte": day_start.isoformat(), "$lte": day_end.isoformat()}
+        })
+        daily_bookings.append(day_bookings)
+        
+        # New users
+        day_users = await db.users.count_documents({
+            "created_at": {"$gte": day_start.isoformat(), "$lte": day_end.isoformat()}
+        })
+        daily_users.append(day_users)
+        
+        daily_labels.append(day.strftime("%a"))
+    
+    # Jobs by category
+    jobs_pipeline = [
+        {"$group": {"_id": "$category", "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10}
+    ]
+    jobs_by_category = await db.jobs.aggregate(jobs_pipeline).to_list(10)
+    
+    # Top professionals by rating
+    top_professionals = await db.professional_profiles.find(
+        {"total_reviews": {"$gt": 0}},
+        {"_id": 0}
+    ).sort("rating", -1).to_list(10)
+    
+    for prof in top_professionals:
+        user_data = await db.users.find_one({"id": prof["user_id"]}, {"name": 1, "email": 1, "_id": 0})
+        prof["name"] = user_data["name"] if user_data else "Unknown"
+        prof["email"] = user_data["email"] if user_data else ""
+    
+    # Top earners
+    top_earners = await db.professional_profiles.find(
+        {"total_earnings": {"$gt": 0}},
+        {"_id": 0}
+    ).sort("total_earnings", -1).to_list(10)
+    
+    for prof in top_earners:
+        user_data = await db.users.find_one({"id": prof["user_id"]}, {"name": 1, "_id": 0})
+        prof["name"] = user_data["name"] if user_data else "Unknown"
+    
+    return {
+        "recent_activity": {
+            "users": recent_users,
+            "jobs": recent_jobs,
+            "bookings": recent_bookings,
+            "payments": recent_payments
+        },
+        "charts": {
+            "labels": daily_labels,
+            "revenue": daily_revenue,
+            "bookings": daily_bookings,
+            "new_users": daily_users
+        },
+        "jobs_by_category": [{"category": j["_id"], "count": j["count"]} for j in jobs_by_category],
+        "top_professionals": top_professionals[:5],
+        "top_earners": top_earners[:5]
     }
 
 @api_router.get("/admin/users")
-async def get_all_users(role: Optional[str] = None, user = Depends(get_current_user)):
+async def get_all_users(
+    role: Optional[str] = None, 
+    search: Optional[str] = None,
+    limit: int = 50,
+    skip: int = 0,
+    user = Depends(get_current_user)
+):
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     
     query = {}
     if role:
         query["role"] = role
+    if search:
+        query["$or"] = [
+            {"name": {"$regex": search, "$options": "i"}},
+            {"email": {"$regex": search, "$options": "i"}}
+        ]
     
-    users = await db.users.find(query, {"_id": 0, "password_hash": 0}).to_list(1000)
-    return users
+    total = await db.users.count_documents(query)
+    users = await db.users.find(query, {"_id": 0, "password_hash": 0}).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich with profile data for professionals
+    for u in users:
+        if u["role"] == "professional":
+            profile = await db.professional_profiles.find_one({"user_id": u["id"]}, {"_id": 0})
+            u["profile"] = profile
+    
+    return {"users": users, "total": total, "limit": limit, "skip": skip}
+
+@api_router.put("/admin/users/{user_id}/status")
+async def update_user_status(user_id: str, is_active: bool, user = Depends(get_current_user)):
+    """Activate or deactivate a user"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    result = await db.users.update_one({"id": user_id}, {"$set": {"is_active": is_active}})
+    if result.modified_count == 0:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return {"message": f"User {'activated' if is_active else 'deactivated'} successfully"}
 
 @api_router.get("/admin/transactions")
 async def get_all_transactions(user = Depends(get_current_user)):
