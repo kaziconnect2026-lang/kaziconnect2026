@@ -77,6 +77,94 @@ class PricingType(str, Enum):
     PROJECT = "project"
     BOTH = "both"
 
+class LedgerEntryType(str, Enum):
+    DEPOSIT = "deposit"                    # User deposits to wallet
+    WITHDRAWAL = "withdrawal"              # User withdraws from wallet
+    ESCROW_IN = "escrow_in"               # Client pays for booking (into escrow)
+    ESCROW_OUT = "escrow_out"             # Payment released from escrow
+    PLATFORM_FEE = "platform_fee"         # Platform commission deducted
+    PROFESSIONAL_PAYOUT = "professional_payout"  # Professional receives payment
+    REFUND = "refund"                     # Refund to client
+    ADJUSTMENT = "adjustment"             # Manual adjustment by admin
+
+# ============= ID GENERATION HELPERS =============
+async def generate_client_id():
+    """Generate unique client ID: CL-XXXXX"""
+    count = await db.users.count_documents({"role": "client"})
+    return f"CL-{str(count + 1).zfill(5)}"
+
+async def generate_professional_id():
+    """Generate unique professional ID: PR-XXXXX"""
+    count = await db.users.count_documents({"role": "professional"})
+    return f"PR-{str(count + 1).zfill(5)}"
+
+async def generate_job_id():
+    """Generate unique job ID: JOB-XXXXX"""
+    count = await db.jobs.count_documents({})
+    return f"JOB-{str(count + 1).zfill(5)}"
+
+async def generate_booking_id():
+    """Generate unique booking ID: BK-XXXXX"""
+    count = await db.bookings.count_documents({})
+    return f"BK-{str(count + 1).zfill(5)}"
+
+async def generate_transaction_id():
+    """Generate unique transaction ID: TXN-XXXXX"""
+    count = await db.ledger.count_documents({})
+    return f"TXN-{str(count + 1).zfill(6)}"
+
+async def generate_payment_id():
+    """Generate unique payment ID: PAY-XXXXX"""
+    count = await db.payments.count_documents({})
+    return f"PAY-{str(count + 1).zfill(5)}"
+
+# ============= LEDGER FUNCTIONS =============
+async def create_ledger_entry(
+    entry_type: LedgerEntryType,
+    user_id: str,
+    amount: float,
+    description: str,
+    reference_id: str = None,
+    reference_type: str = None,
+    related_user_id: str = None,
+    metadata: dict = None
+):
+    """Create a ledger entry to track all financial transactions"""
+    transaction_id = await generate_transaction_id()
+    
+    # Get user's current wallet balance
+    user = await db.users.find_one({"id": user_id}, {"wallet_balance": 1})
+    balance_before = user.get("wallet_balance", 0.0) if user else 0.0
+    
+    # Calculate balance after based on entry type
+    if entry_type in [LedgerEntryType.DEPOSIT, LedgerEntryType.PROFESSIONAL_PAYOUT, LedgerEntryType.REFUND]:
+        balance_after = balance_before + amount
+    elif entry_type in [LedgerEntryType.WITHDRAWAL, LedgerEntryType.ESCROW_IN]:
+        balance_after = balance_before - amount
+    else:
+        balance_after = balance_before  # For platform fees and escrow_out, no wallet change
+    
+    ledger_entry = {
+        "id": str(uuid.uuid4()),
+        "transaction_id": transaction_id,
+        "entry_type": entry_type.value,
+        "user_id": user_id,
+        "related_user_id": related_user_id,
+        "amount": amount,
+        "balance_before": balance_before,
+        "balance_after": balance_after,
+        "description": description,
+        "reference_id": reference_id,
+        "reference_type": reference_type,
+        "metadata": metadata or {},
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "status": "completed"
+    }
+    
+    await db.ledger.insert_one(ledger_entry)
+    
+    return {k: v for k, v in ledger_entry.items() if k != "_id"}
+
 # ============= MODELS =============
 class UserBase(BaseModel):
     email: EmailStr
