@@ -82,6 +82,16 @@ Comprehensive financial tracking with synchronized wallet operations:
 - ID Number field for verification
 - Experience years and portfolio
 - Availability toggle
+- **Profile photo upload** (NEW) - Upload profile photo from CreateProfile page
+
+### ✅ Client Profile Page (NEW)
+- View and edit personal information (name, phone, location)
+- Profile photo upload with camera button
+- Stats display (jobs posted, bookings, total spent)
+- Member since date
+- Quick links to wallet and bookings
+- Edit mode toggle with save/cancel
+- Accessible from sidebar navigation at `/client/profile`
 
 ### ✅ Job System
 - Jobs get unique display IDs (JOB-XXXXX)
