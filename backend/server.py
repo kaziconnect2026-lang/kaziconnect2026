@@ -1512,11 +1512,17 @@ async def initiate_payment(payment_data: PaymentCreate, user = Depends(get_curre
     professional_amount = amount - platform_fee
     
     payment_id = str(uuid.uuid4())
+    payment_display_id = await generate_payment_id()
+    
     payment_doc = {
         "id": payment_id,
+        "display_id": payment_display_id,
         "booking_id": payment_data.booking_id,
+        "booking_display_id": booking.get("display_id"),
         "client_id": user["id"],
+        "client_display_id": user.get("display_id"),
         "professional_id": booking["professional_id"],
+        "professional_display_id": booking.get("professional_display_id"),
         "amount": amount,
         "platform_fee": platform_fee,
         "professional_amount": professional_amount,
@@ -1527,6 +1533,24 @@ async def initiate_payment(payment_data: PaymentCreate, user = Depends(get_curre
     }
     
     await db.payments.insert_one(payment_doc)
+    
+    # Create ledger entry for escrow
+    await create_ledger_entry(
+        entry_type=LedgerEntryType.ESCROW_IN,
+        user_id=user["id"],
+        amount=amount,
+        description=f"Payment for booking {booking.get('display_id', payment_data.booking_id)} - {booking.get('service_description', 'Service')}",
+        reference_id=payment_display_id,
+        reference_type="payment",
+        related_user_id=booking["professional_id"],
+        metadata={
+            "booking_id": payment_data.booking_id,
+            "booking_display_id": booking.get("display_id"),
+            "professional_id": booking["professional_id"],
+            "platform_fee": platform_fee,
+            "professional_amount": professional_amount
+        }
+    )
     
     # Update booking status
     await db.bookings.update_one({"id": payment_data.booking_id}, {"$set": {"status": BookingStatus.CONFIRMED.value}})
@@ -1550,12 +1574,60 @@ async def release_payment(payment_id: str, user = Depends(get_current_user)):
         raise HTTPException(status_code=400, detail="Payment not in escrow")
     
     # Release payment to professional
+    released_at = datetime.now(timezone.utc).isoformat()
     await db.payments.update_one(
         {"id": payment_id},
-        {"$set": {"status": PaymentStatus.RELEASED.value, "released_at": datetime.now(timezone.utc).isoformat()}}
+        {"$set": {"status": PaymentStatus.RELEASED.value, "released_at": released_at}}
     )
     
-    # Update professional earnings
+    # Create ledger entry for escrow release
+    await create_ledger_entry(
+        entry_type=LedgerEntryType.ESCROW_OUT,
+        user_id=payment["client_id"],
+        amount=payment["amount"],
+        description=f"Escrow released for payment {payment.get('display_id', payment_id)}",
+        reference_id=payment.get("display_id", payment_id),
+        reference_type="payment_release",
+        related_user_id=payment["professional_id"]
+    )
+    
+    # Create ledger entry for platform fee
+    await create_ledger_entry(
+        entry_type=LedgerEntryType.PLATFORM_FEE,
+        user_id="platform",
+        amount=payment["platform_fee"],
+        description=f"Platform commission (20%) from payment {payment.get('display_id', payment_id)}",
+        reference_id=payment.get("display_id", payment_id),
+        reference_type="platform_fee",
+        related_user_id=payment["professional_id"],
+        metadata={
+            "client_id": payment["client_id"],
+            "professional_id": payment["professional_id"],
+            "total_amount": payment["amount"]
+        }
+    )
+    
+    # Create ledger entry for professional payout
+    await create_ledger_entry(
+        entry_type=LedgerEntryType.PROFESSIONAL_PAYOUT,
+        user_id=payment["professional_id"],
+        amount=payment["professional_amount"],
+        description=f"Payout from booking - {payment.get('display_id', payment_id)}",
+        reference_id=payment.get("display_id", payment_id),
+        reference_type="professional_payout",
+        related_user_id=payment["client_id"],
+        metadata={
+            "total_amount": payment["amount"],
+            "platform_fee": payment["platform_fee"]
+        }
+    )
+    
+    # Update professional wallet and earnings
+    await db.users.update_one(
+        {"id": payment["professional_id"]},
+        {"$inc": {"wallet_balance": payment["professional_amount"]}}
+    )
+    
     await db.professional_profiles.update_one(
         {"user_id": payment["professional_id"]},
         {"$inc": {"total_earnings": payment["professional_amount"], "total_jobs": 1}}
