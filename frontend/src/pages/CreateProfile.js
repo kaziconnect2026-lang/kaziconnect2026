@@ -15,11 +15,14 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
 export default function CreateProfile() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const navigate = useNavigate();
+  const fileInputRef = useRef(null);
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(false);
   const [existingProfile, setExistingProfile] = useState(null);
+  const [photoPreview, setPhotoPreview] = useState(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [formData, setFormData] = useState({
     profession: "",
     bio: "",
