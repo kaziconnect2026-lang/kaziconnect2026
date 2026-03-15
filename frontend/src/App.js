@@ -155,6 +155,11 @@ function App() {
                 <AdminDashboard />
               </ProtectedRoute>
             } />
+            <Route path="/admin/ledger" element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <LedgerPage />
+              </ProtectedRoute>
+            } />
             
             {/* Catch all */}
             <Route path="*" element={<Navigate to="/" replace />} />
