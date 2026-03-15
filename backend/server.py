@@ -416,14 +416,158 @@ async def require_role(required_roles: List[UserRole]):
 
 # ============= PROFESSIONAL CATEGORIES =============
 PROFESSIONAL_CATEGORIES = [
-    {"id": "barber", "name": "Barber", "icon": "scissors", "image": "https://images.unsplash.com/photo-1599641078447-229873aedbc8?crop=entropy&cs=srgb&fm=jpg&q=85"},
-    {"id": "electrician", "name": "Electrician", "icon": "zap", "image": "https://images.unsplash.com/photo-1621905252507-b35492cc74b4?crop=entropy&cs=srgb&fm=jpg&q=85"},
-    {"id": "plumber", "name": "Plumber", "icon": "droplet", "image": "https://images.pexels.com/photos/8486978/pexels-photo-8486978.jpeg"},
-    {"id": "tattoo_artist", "name": "Tattoo Artist", "icon": "pen-tool", "image": "https://images.unsplash.com/photo-1753259789341-808371092e19?crop=entropy&cs=srgb&fm=jpg&q=85"},
-    {"id": "mechanic", "name": "Mechanic", "icon": "wrench", "image": "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?crop=entropy&cs=srgb&fm=jpg&q=85"},
-    {"id": "painter", "name": "Painter", "icon": "paintbrush", "image": "https://images.unsplash.com/photo-1562259949-e8e7689d7828?crop=entropy&cs=srgb&fm=jpg&q=85"},
-    {"id": "carpenter", "name": "Carpenter", "icon": "hammer", "image": "https://images.unsplash.com/photo-1504148455328-c376907d081c?crop=entropy&cs=srgb&fm=jpg&q=85"},
-    {"id": "cleaner", "name": "Cleaner", "icon": "sparkles", "image": "https://images.unsplash.com/photo-1581578731548-c64695cc6952?crop=entropy&cs=srgb&fm=jpg&q=85"},
+    # Home Services
+    {"id": "cleaner", "name": "Cleaner", "icon": "sparkles", "group": "Home Services"},
+    {"id": "window_cleaner", "name": "Window Cleaner", "icon": "sparkles", "group": "Home Services"},
+    {"id": "carpet_cleaner", "name": "Carpet Cleaner", "icon": "sparkles", "group": "Home Services"},
+    {"id": "laundry_washer", "name": "Laundry Washer", "icon": "shirt", "group": "Home Services"},
+    {"id": "swimming_pool_cleaner", "name": "Swimming Pool Cleaner", "icon": "waves", "group": "Home Services"},
+    {"id": "landscaper", "name": "Landscaper / Gardener", "icon": "trees", "group": "Home Services"},
+    {"id": "painter", "name": "Painter", "icon": "paintbrush", "group": "Home Services"},
+    {"id": "interior_decorator", "name": "Interior Decorator", "icon": "lamp", "group": "Home Services"},
+    {"id": "plastering_specialist", "name": "Plastering Specialist", "icon": "brick-wall", "group": "Home Services"},
+    {"id": "tiler", "name": "Tiler", "icon": "grid-3x3", "group": "Home Services"},
+    {"id": "welder", "name": "Welder", "icon": "flame", "group": "Home Services"},
+    {"id": "borehole_drilling", "name": "Borehole Drilling Expert", "icon": "droplet", "group": "Home Services"},
+    
+    # Repair & Technical Services
+    {"id": "tv_repair", "name": "TV Repair Technician", "icon": "tv", "group": "Repair & Technical"},
+    {"id": "phone_repair", "name": "Phone Repair Technician", "icon": "smartphone", "group": "Repair & Technical"},
+    {"id": "laptop_repair", "name": "Laptop Repair Technician", "icon": "laptop", "group": "Repair & Technical"},
+    {"id": "electronics_repair", "name": "Electronics Repair Technician", "icon": "cpu", "group": "Repair & Technical"},
+    {"id": "sound_system_installer", "name": "Sound System Installer", "icon": "speaker", "group": "Repair & Technical"},
+    {"id": "cctv_installer", "name": "CCTV Installer", "icon": "video", "group": "Repair & Technical"},
+    {"id": "solar_installer", "name": "Solar Power Installer", "icon": "sun", "group": "Repair & Technical"},
+    {"id": "wifi_installer", "name": "Internet / WiFi Installer", "icon": "wifi", "group": "Repair & Technical"},
+    {"id": "cable_technician", "name": "Cable Technician", "icon": "cable", "group": "Repair & Technical"},
+    {"id": "appliance_repair", "name": "Appliance Repair Technician", "icon": "refrigerator", "group": "Repair & Technical"},
+    {"id": "generator_technician", "name": "Generator Technician", "icon": "zap", "group": "Repair & Technical"},
+    
+    # Construction & Handyman
+    {"id": "mason", "name": "Mason / Fundi", "icon": "building", "group": "Construction & Handyman"},
+    {"id": "carpenter", "name": "Carpenter", "icon": "hammer", "group": "Construction & Handyman"},
+    {"id": "foreman", "name": "Foreman", "icon": "hard-hat", "group": "Construction & Handyman"},
+    {"id": "plumber", "name": "Plumber", "icon": "droplet", "group": "Construction & Handyman"},
+    {"id": "electrician", "name": "Electrician", "icon": "zap", "group": "Construction & Handyman"},
+    {"id": "roofing_specialist", "name": "Roofing Specialist", "icon": "home", "group": "Construction & Handyman"},
+    {"id": "steel_fixer", "name": "Steel Fixer", "icon": "construction", "group": "Construction & Handyman"},
+    {"id": "construction_manager", "name": "Construction Manager", "icon": "clipboard-list", "group": "Construction & Handyman"},
+    
+    # Education & Tutoring
+    {"id": "english_tutor", "name": "English Tutor", "icon": "book-open", "group": "Education & Tutoring"},
+    {"id": "math_tutor", "name": "Math Tutor", "icon": "calculator", "group": "Education & Tutoring"},
+    {"id": "kiswahili_tutor", "name": "Kiswahili Tutor", "icon": "book", "group": "Education & Tutoring"},
+    {"id": "primary_tutor", "name": "Primary School Tutor", "icon": "school", "group": "Education & Tutoring"},
+    {"id": "high_school_tutor", "name": "High School Tutor", "icon": "graduation-cap", "group": "Education & Tutoring"},
+    {"id": "university_tutor", "name": "University Tutor", "icon": "university", "group": "Education & Tutoring"},
+    {"id": "academic_writer", "name": "Academic Writer", "icon": "pen", "group": "Education & Tutoring"},
+    {"id": "proposal_writer", "name": "Proposal Writer", "icon": "file-text", "group": "Education & Tutoring"},
+    {"id": "research_assistant", "name": "Research Assistant", "icon": "search", "group": "Education & Tutoring"},
+    
+    # Creative & Media
+    {"id": "video_director", "name": "Video Director", "icon": "clapperboard", "group": "Creative & Media"},
+    {"id": "script_writer", "name": "Script Writer", "icon": "scroll", "group": "Creative & Media"},
+    {"id": "videographer", "name": "Videographer", "icon": "video", "group": "Creative & Media"},
+    {"id": "photographer", "name": "Photographer", "icon": "camera", "group": "Creative & Media"},
+    {"id": "cameraman", "name": "Cameraman", "icon": "video", "group": "Creative & Media"},
+    {"id": "lighting_technician", "name": "Lighting Technician", "icon": "lightbulb", "group": "Creative & Media"},
+    {"id": "makeup_artist", "name": "Makeup Artist", "icon": "palette", "group": "Creative & Media"},
+    {"id": "content_creator", "name": "Content Creator", "icon": "share-2", "group": "Creative & Media"},
+    {"id": "influencer", "name": "Influencer", "icon": "star", "group": "Creative & Media"},
+    {"id": "graphic_designer", "name": "Graphic Designer", "icon": "pen-tool", "group": "Creative & Media"},
+    {"id": "animator", "name": "Animator", "icon": "film", "group": "Creative & Media"},
+    {"id": "voice_over_artist", "name": "Voice Over Artist", "icon": "mic", "group": "Creative & Media"},
+    
+    # Event & Entertainment
+    {"id": "event_planner", "name": "Event Planner", "icon": "calendar-check", "group": "Event & Entertainment"},
+    {"id": "dj", "name": "DJ", "icon": "disc", "group": "Event & Entertainment"},
+    {"id": "comedian", "name": "Comedian", "icon": "smile", "group": "Event & Entertainment"},
+    {"id": "mc_host", "name": "MC / Host", "icon": "mic", "group": "Event & Entertainment"},
+    {"id": "caterer", "name": "Caterer", "icon": "utensils", "group": "Event & Entertainment"},
+    {"id": "private_chef", "name": "Private Chef", "icon": "chef-hat", "group": "Event & Entertainment"},
+    {"id": "waiter", "name": "Waiter", "icon": "coffee", "group": "Event & Entertainment"},
+    {"id": "wedding_planner", "name": "Wedding Planner", "icon": "heart", "group": "Event & Entertainment"},
+    {"id": "event_decorator", "name": "Event Decorator", "icon": "sparkles", "group": "Event & Entertainment"},
+    
+    # Transport & Delivery
+    {"id": "courier", "name": "Courier", "icon": "package", "group": "Transport & Delivery"},
+    {"id": "delivery_rider", "name": "Delivery Rider", "icon": "bike", "group": "Transport & Delivery"},
+    {"id": "bodaboda_rider", "name": "Bodaboda Rider", "icon": "bike", "group": "Transport & Delivery"},
+    {"id": "personal_driver", "name": "Personal Driver", "icon": "car", "group": "Transport & Delivery"},
+    {"id": "truck_driver", "name": "Truck Driver", "icon": "truck", "group": "Transport & Delivery"},
+    {"id": "bus_driver", "name": "Bus Driver", "icon": "bus", "group": "Transport & Delivery"},
+    {"id": "taxi_driver", "name": "Taxi Driver", "icon": "car", "group": "Transport & Delivery"},
+    {"id": "tour_guide", "name": "Tour Guide", "icon": "map", "group": "Transport & Delivery"},
+    {"id": "movers", "name": "Movers", "icon": "truck", "group": "Transport & Delivery"},
+    
+    # Automotive Services
+    {"id": "car_mechanic", "name": "Car Mechanic", "icon": "wrench", "group": "Automotive Services"},
+    {"id": "motorcycle_mechanic", "name": "Motorcycle Mechanic", "icon": "wrench", "group": "Automotive Services"},
+    {"id": "tire_repair", "name": "Tire Repair Technician", "icon": "circle", "group": "Automotive Services"},
+    {"id": "car_electrician", "name": "Car Electrician", "icon": "zap", "group": "Automotive Services"},
+    {"id": "car_wash", "name": "Car Wash Service", "icon": "droplets", "group": "Automotive Services"},
+    
+    # Health & Wellness
+    {"id": "nutritionist", "name": "Nutritionist", "icon": "apple", "group": "Health & Wellness"},
+    {"id": "diet_planner", "name": "Diet Planner", "icon": "salad", "group": "Health & Wellness"},
+    {"id": "personal_trainer", "name": "Personal Trainer", "icon": "dumbbell", "group": "Health & Wellness"},
+    {"id": "boxing_trainer", "name": "Boxing Trainer", "icon": "dumbbell", "group": "Health & Wellness"},
+    {"id": "karate_trainer", "name": "Karate Trainer", "icon": "shield", "group": "Health & Wellness"},
+    {"id": "physiotherapist", "name": "Physiotherapist", "icon": "activity", "group": "Health & Wellness"},
+    {"id": "nurse", "name": "Nurse", "icon": "stethoscope", "group": "Health & Wellness"},
+    {"id": "dentist", "name": "Dentist", "icon": "smile", "group": "Health & Wellness"},
+    
+    # Beauty & Personal Care
+    {"id": "hairdresser", "name": "Hairdresser", "icon": "scissors", "group": "Beauty & Personal Care"},
+    {"id": "nail_technician", "name": "Nail Technician", "icon": "sparkles", "group": "Beauty & Personal Care"},
+    {"id": "barber", "name": "Barber", "icon": "scissors", "group": "Beauty & Personal Care"},
+    {"id": "massage_therapist", "name": "Massage Therapist", "icon": "heart-pulse", "group": "Beauty & Personal Care"},
+    {"id": "hina_artist", "name": "Hina Artist", "icon": "palette", "group": "Beauty & Personal Care"},
+    
+    # Technology & Digital Services
+    {"id": "web_developer", "name": "Web Developer", "icon": "globe", "group": "Technology & Digital"},
+    {"id": "software_engineer", "name": "Software Engineer", "icon": "code", "group": "Technology & Digital"},
+    {"id": "mobile_app_developer", "name": "Mobile App Developer", "icon": "smartphone", "group": "Technology & Digital"},
+    {"id": "ai_specialist", "name": "AI Specialist", "icon": "brain", "group": "Technology & Digital"},
+    {"id": "data_scientist", "name": "Data Scientist", "icon": "bar-chart", "group": "Technology & Digital"},
+    {"id": "prompt_engineer", "name": "Prompt Engineer", "icon": "message-square", "group": "Technology & Digital"},
+    {"id": "cybersecurity_specialist", "name": "Cybersecurity Specialist", "icon": "shield", "group": "Technology & Digital"},
+    {"id": "it_support", "name": "IT Support Technician", "icon": "headphones", "group": "Technology & Digital"},
+    {"id": "cloud_engineer", "name": "Cloud Engineer", "icon": "cloud", "group": "Technology & Digital"},
+    
+    # Business & Professional Services
+    {"id": "financial_auditor", "name": "Financial Auditor", "icon": "file-check", "group": "Business & Professional"},
+    {"id": "accountant", "name": "Accountant", "icon": "calculator", "group": "Business & Professional"},
+    {"id": "business_consultant", "name": "Business Consultant", "icon": "briefcase", "group": "Business & Professional"},
+    {"id": "digital_marketer", "name": "Digital Marketer", "icon": "megaphone", "group": "Business & Professional"},
+    {"id": "market_researcher", "name": "Market Researcher", "icon": "search", "group": "Business & Professional"},
+    {"id": "market_analyst", "name": "Market Analyst", "icon": "trending-up", "group": "Business & Professional"},
+    {"id": "real_estate_agent", "name": "Real Estate Agent", "icon": "home", "group": "Business & Professional"},
+    {"id": "cleaning_agency", "name": "Cleaning Agency", "icon": "building", "group": "Business & Professional"},
+    {"id": "property_manager", "name": "Property Manager", "icon": "key", "group": "Business & Professional"},
+    
+    # Security Services
+    {"id": "bodyguard", "name": "Bodyguard", "icon": "shield", "group": "Security Services"},
+    {"id": "security_guard", "name": "Security Guard", "icon": "shield-check", "group": "Security Services"},
+    {"id": "private_investigator", "name": "Private Investigator", "icon": "search", "group": "Security Services"},
+    {"id": "dog_trainer", "name": "Dog Trainer", "icon": "dog", "group": "Security Services"},
+    
+    # Domestic Services
+    {"id": "housemaid", "name": "Housemaid / House Helper", "icon": "home", "group": "Domestic Services"},
+    {"id": "chef", "name": "Chef", "icon": "chef-hat", "group": "Domestic Services"},
+    {"id": "nanny", "name": "Nanny", "icon": "baby", "group": "Domestic Services"},
+    {"id": "elderly_caregiver", "name": "Elderly Caregiver", "icon": "heart", "group": "Domestic Services"},
+    
+    # Film Production Crew
+    {"id": "director", "name": "Director", "icon": "clapperboard", "group": "Film Production Crew"},
+    {"id": "producer", "name": "Producer", "icon": "film", "group": "Film Production Crew"},
+    {"id": "film_cameraman", "name": "Cameraman", "icon": "video", "group": "Film Production Crew"},
+    {"id": "film_lighting", "name": "Lighting Technician", "icon": "lightbulb", "group": "Film Production Crew"},
+    {"id": "film_extras", "name": "Film Extras", "icon": "users", "group": "Film Production Crew"},
+    {"id": "transport_crew", "name": "Transport Crew", "icon": "truck", "group": "Film Production Crew"},
+    
+    # Legacy/Other
+    {"id": "tattoo_artist", "name": "Tattoo Artist", "icon": "pen-tool", "group": "Beauty & Personal Care"},
 ]
 
 # ============= ROOT ENDPOINT =============
