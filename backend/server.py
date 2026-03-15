@@ -906,6 +906,17 @@ async def mark_notification_read(notification_id: str, user = Depends(get_curren
 async def get_categories():
     return PROFESSIONAL_CATEGORIES
 
+@api_router.get("/categories/grouped")
+async def get_categories_grouped():
+    """Get categories organized by group"""
+    groups = {}
+    for cat in PROFESSIONAL_CATEGORIES:
+        group = cat.get("group", "Other")
+        if group not in groups:
+            groups[group] = []
+        groups[group].append(cat)
+    return groups
+
 # ============= PROFESSIONAL PROFILE ENDPOINTS =============
 @api_router.post("/professionals/profile")
 async def create_professional_profile(profile_data: ProfessionalProfileCreate, user = Depends(get_current_user)):
