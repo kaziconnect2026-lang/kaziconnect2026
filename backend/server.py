@@ -184,6 +184,7 @@ class UserLogin(BaseModel):
 
 class UserResponse(BaseModel):
     id: str
+    display_id: Optional[str] = None
     email: str
     name: str
     phone: str
