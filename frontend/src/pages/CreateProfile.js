@@ -80,6 +80,37 @@ export default function CreateProfile() {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
+  const handlePhotoSelect = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image must be less than 5MB");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPhotoPreview(reader.result);
+      handlePhotoUpload(reader.result);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handlePhotoUpload = async (base64Data) => {
+    setUploadingPhoto(true);
+    try {
+      await axios.post(`${API}/users/profile-photo?photo_url=${encodeURIComponent(base64Data)}`);
+      toast.success("Profile photo updated!");
+      if (refreshUser) refreshUser();
+    } catch (error) {
+      toast.error("Failed to upload photo");
+      setPhotoPreview(user?.profile_photo || null);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
   const addSkill = () => {
     if (newSkill.trim() && !formData.skills.includes(newSkill.trim())) {
       setFormData({ ...formData, skills: [...formData.skills, newSkill.trim()] });
