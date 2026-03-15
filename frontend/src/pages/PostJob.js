@@ -30,7 +30,7 @@ export default function PostJob() {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const response = await axios.get(`${API}/categories`);
+        const response = await axios.get(`${API}/categories/grouped`);
         setCategories(response.data);
       } catch (error) {
         console.error("Failed to fetch categories:", error);
