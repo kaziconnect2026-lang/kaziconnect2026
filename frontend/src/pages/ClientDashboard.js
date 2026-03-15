@@ -103,6 +103,10 @@ export default function ClientDashboard() {
               <Bell className="w-5 h-5" />
               <span>Notifications</span>
             </Link>
+            <Link to="/client/profile" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted">
+              <User className="w-5 h-5" />
+              <span>My Profile</span>
+            </Link>
             <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-destructive/10 text-destructive">
               <LogOut className="w-5 h-5" />
               <span>Log out</span>
