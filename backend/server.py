@@ -1362,10 +1362,17 @@ async def create_booking(booking_data: BookingCreate, user = Depends(get_current
     if not professional:
         raise HTTPException(status_code=404, detail="Professional not found")
     
+    pro_user = await db.users.find_one({"id": booking_data.professional_id}, {"display_id": 1})
+    
     booking_id = str(uuid.uuid4())
+    booking_display_id = await generate_booking_id()
+    
     booking_doc = {
         "id": booking_id,
+        "display_id": booking_display_id,
         "client_id": user["id"],
+        "client_display_id": user.get("display_id"),
+        "professional_display_id": pro_user.get("display_id") if pro_user else None,
         **booking_data.model_dump(),
         "scheduled_date": booking_data.scheduled_date.isoformat(),
         "status": BookingStatus.PENDING.value,
