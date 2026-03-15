@@ -508,6 +508,7 @@ async def login(credentials: UserLogin):
         access_token=token,
         user=UserResponse(
             id=user["id"],
+            display_id=user.get("display_id"),
             email=user["email"],
             name=user["name"],
             phone=user["phone"],
@@ -529,6 +530,7 @@ async def get_me(user = Depends(get_current_user)):
     
     return UserResponse(
         id=user["id"],
+        display_id=user.get("display_id"),
         email=user["email"],
         name=user["name"],
         phone=user["phone"],
