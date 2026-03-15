@@ -230,22 +230,51 @@ export default function CreateProfile() {
                 <Label htmlFor="profession">Profession</Label>
                 <Select 
                   value={formData.profession} 
-                  onValueChange={(value) => setFormData({...formData, profession: value})}
+                  onValueChange={(value) => {
+                    setFormData({...formData, profession: value});
+                    setCategorySearch("");
+                  }}
+                  onOpenChange={(open) => !open && setCategorySearch("")}
                 >
                   <SelectTrigger className="h-12" data-testid="profession-select">
                     <SelectValue placeholder="Select your profession" />
                   </SelectTrigger>
                   <SelectContent className="max-h-80">
-                    {Object.entries(categories).map(([groupName, groupCats]) => (
-                      <div key={groupName}>
-                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 sticky top-0">
-                          {groupName}
-                        </div>
-                        {groupCats.map((cat) => (
-                          <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
-                        ))}
+                    <div className="px-2 py-2 sticky top-0 bg-background z-10 border-b">
+                      <div className="relative">
+                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                        <Input
+                          placeholder="Search professions..."
+                          value={categorySearch}
+                          onChange={(e) => setCategorySearch(e.target.value)}
+                          className="pl-8 h-9"
+                          data-testid="profession-search"
+                        />
                       </div>
-                    ))}
+                    </div>
+                    {Object.entries(categories).map(([groupName, groupCats]) => {
+                      const filteredCats = groupCats.filter(cat => 
+                        cat.name.toLowerCase().includes(categorySearch.toLowerCase())
+                      );
+                      if (filteredCats.length === 0) return null;
+                      return (
+                        <div key={groupName}>
+                          <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 sticky top-[52px]">
+                            {groupName}
+                          </div>
+                          {filteredCats.map((cat) => (
+                            <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                          ))}
+                        </div>
+                      );
+                    })}
+                    {categorySearch && Object.values(categories).flat().filter(cat => 
+                      cat.name.toLowerCase().includes(categorySearch.toLowerCase())
+                    ).length === 0 && (
+                      <div className="px-2 py-4 text-center text-sm text-muted-foreground">
+                        No professions found for "{categorySearch}"
+                      </div>
+                    )}
                   </SelectContent>
                 </Select>
               </div>
