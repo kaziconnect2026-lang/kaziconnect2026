@@ -234,9 +234,16 @@ export default function CreateProfile() {
                   <SelectTrigger className="h-12" data-testid="profession-select">
                     <SelectValue placeholder="Select your profession" />
                   </SelectTrigger>
-                  <SelectContent>
-                    {categories.map((cat) => (
-                      <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                  <SelectContent className="max-h-80">
+                    {Object.entries(categories).map(([groupName, groupCats]) => (
+                      <div key={groupName}>
+                        <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 sticky top-0">
+                          {groupName}
+                        </div>
+                        {groupCats.map((cat) => (
+                          <SelectItem key={cat.id} value={cat.name}>{cat.name}</SelectItem>
+                        ))}
+                      </div>
                     ))}
                   </SelectContent>
                 </Select>
