@@ -71,6 +71,11 @@ Comprehensive financial tracking with synchronized wallet operations:
 - `GET /api/categories/grouped` - Categories organized by group
 - `GET /api/categories/featured` - 8 featured categories with images for landing page
 
+### UI Features
+- **Searchable Category Dropdowns** - All category selects include a search filter for quick navigation
+- Category groups are collapsible sections with sticky headers
+- "No results found" message when search doesn't match
+
 ## Features Implemented
 
 ### ✅ Core Authentication
