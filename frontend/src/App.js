@@ -17,6 +17,7 @@ import MyBids from "./pages/MyBids";
 import JobBids from "./pages/JobBids";
 import WalletPage from "./pages/WalletPage";
 import NotificationsPage from "./pages/NotificationsPage";
+import LedgerPage from "./pages/LedgerPage";
 import "./App.css";
 
 // Protected Route Component
