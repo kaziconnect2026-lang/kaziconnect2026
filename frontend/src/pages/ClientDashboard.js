@@ -174,6 +174,14 @@ export default function ClientDashboard() {
               <Bell className="w-5 h-5" />
               <span>Notifications</span>
             </Link>
+            <Link 
+              to="/client/profile" 
+              className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-colors"
+              data-testid="nav-profile"
+            >
+              <User className="w-5 h-5" />
+              <span>My Profile</span>
+            </Link>
           </nav>
 
           <div className="pt-6 border-t border-border">
