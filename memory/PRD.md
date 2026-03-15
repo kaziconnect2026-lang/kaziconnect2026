@@ -47,6 +47,30 @@ Comprehensive financial tracking with synchronized wallet operations:
 - `metadata`: Additional context (phone numbers, refs, etc.)
 - `created_at`: Timestamp
 
+## Professional Categories (NEW - 121 Categories in 15 Groups)
+
+### Category Groups
+1. **Home Services** (12): Cleaner, Window Cleaner, Carpet Cleaner, Laundry Washer, Swimming Pool Cleaner, Landscaper/Gardener, Painter, Interior Decorator, Plastering Specialist, Tiler, Welder, Borehole Drilling Expert
+2. **Repair & Technical** (11): TV/Phone/Laptop/Electronics Repair, Sound System/CCTV/Solar/WiFi Installer, Cable/Appliance/Generator Technician
+3. **Construction & Handyman** (8): Mason/Fundi, Carpenter, Foreman, Plumber, Electrician, Roofing Specialist, Steel Fixer, Construction Manager
+4. **Education & Tutoring** (9): English/Math/Kiswahili Tutors, Primary/High School/University Tutors, Academic/Proposal Writers, Research Assistant
+5. **Creative & Media** (12): Video Director, Script Writer, Videographer, Photographer, Cameraman, Lighting Technician, Makeup Artist, Content Creator, Influencer, Graphic Designer, Animator, Voice Over Artist
+6. **Event & Entertainment** (9): Event Planner, DJ, Comedian, MC/Host, Caterer, Private Chef, Waiter, Wedding Planner, Event Decorator
+7. **Transport & Delivery** (9): Courier, Delivery Rider, Bodaboda Rider, Personal/Truck/Bus/Taxi Driver, Tour Guide, Movers
+8. **Automotive Services** (5): Car/Motorcycle Mechanic, Tire Repair, Car Electrician, Car Wash
+9. **Health & Wellness** (8): Nutritionist, Diet Planner, Personal/Boxing/Karate Trainer, Physiotherapist, Nurse, Dentist
+10. **Beauty & Personal Care** (6): Hairdresser, Nail Technician, Barber, Massage Therapist, Hina Artist, Tattoo Artist
+11. **Technology & Digital** (9): Web/Mobile App/Software Developer, AI Specialist, Data Scientist, Prompt Engineer, Cybersecurity Specialist, IT Support, Cloud Engineer
+12. **Business & Professional** (9): Financial Auditor, Accountant, Business Consultant, Digital Marketer, Market Researcher/Analyst, Real Estate Agent, Cleaning Agency, Property Manager
+13. **Security Services** (4): Bodyguard, Security Guard, Private Investigator, Dog Trainer
+14. **Domestic Services** (4): Housemaid/House Helper, Chef, Nanny, Elderly Caregiver
+15. **Film Production Crew** (6): Director, Producer, Cameraman, Lighting Technician, Film Extras, Transport Crew
+
+### API Endpoints
+- `GET /api/categories` - All 121 categories (flat list)
+- `GET /api/categories/grouped` - Categories organized by group
+- `GET /api/categories/featured` - 8 featured categories with images for landing page
+
 ## Features Implemented
 
 ### ✅ Core Authentication
