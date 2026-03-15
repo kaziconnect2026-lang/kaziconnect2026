@@ -134,6 +134,10 @@ Comprehensive financial tracking with synchronized wallet operations:
 - `POST /api/auth/login` - Login
 - `GET /api/auth/me` - Current user (includes display_id)
 
+### User Profile (NEW)
+- `PUT /api/users/profile` - Update user profile (name, phone, location)
+- `POST /api/users/profile-photo` - Upload profile photo (base64 or URL)
+
 ### Wallet
 - `GET /api/wallet/balance` - Get balance
 - `GET /api/wallet/transactions` - Transaction history
