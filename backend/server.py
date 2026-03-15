@@ -570,6 +570,18 @@ PROFESSIONAL_CATEGORIES = [
     {"id": "tattoo_artist", "name": "Tattoo Artist", "icon": "pen-tool", "group": "Beauty & Personal Care"},
 ]
 
+# Featured categories for landing page with images
+FEATURED_CATEGORIES = [
+    {"id": "barber", "name": "Barber", "icon": "scissors", "image": "https://images.unsplash.com/photo-1599641078447-229873aedbc8?crop=entropy&cs=srgb&fm=jpg&q=85", "group": "Beauty & Personal Care"},
+    {"id": "electrician", "name": "Electrician", "icon": "zap", "image": "https://images.unsplash.com/photo-1621905252507-b35492cc74b4?crop=entropy&cs=srgb&fm=jpg&q=85", "group": "Construction & Handyman"},
+    {"id": "plumber", "name": "Plumber", "icon": "droplet", "image": "https://images.pexels.com/photos/8486978/pexels-photo-8486978.jpeg", "group": "Construction & Handyman"},
+    {"id": "cleaner", "name": "Cleaner", "icon": "sparkles", "image": "https://images.unsplash.com/photo-1581578731548-c64695cc6952?crop=entropy&cs=srgb&fm=jpg&q=85", "group": "Home Services"},
+    {"id": "carpenter", "name": "Carpenter", "icon": "hammer", "image": "https://images.unsplash.com/photo-1504148455328-c376907d081c?crop=entropy&cs=srgb&fm=jpg&q=85", "group": "Construction & Handyman"},
+    {"id": "painter", "name": "Painter", "icon": "paintbrush", "image": "https://images.unsplash.com/photo-1562259949-e8e7689d7828?crop=entropy&cs=srgb&fm=jpg&q=85", "group": "Home Services"},
+    {"id": "car_mechanic", "name": "Car Mechanic", "icon": "wrench", "image": "https://images.unsplash.com/photo-1486262715619-67b85e0b08d3?crop=entropy&cs=srgb&fm=jpg&q=85", "group": "Automotive Services"},
+    {"id": "photographer", "name": "Photographer", "icon": "camera", "image": "https://images.unsplash.com/photo-1554048612-b6a482bc67e5?crop=entropy&cs=srgb&fm=jpg&q=85", "group": "Creative & Media"},
+]
+
 # ============= ROOT ENDPOINT =============
 # Add your routes to the router instead of directly to app
 @api_router.get("/")
