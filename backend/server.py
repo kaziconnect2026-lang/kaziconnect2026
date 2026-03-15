@@ -874,9 +874,13 @@ async def create_job(job_data: JobPostCreate, user = Depends(get_current_user)):
         raise HTTPException(status_code=403, detail="Only clients can post jobs")
     
     job_id = str(uuid.uuid4())
+    job_display_id = await generate_job_id()
+    
     job_doc = {
         "id": job_id,
+        "display_id": job_display_id,
         "client_id": user["id"],
+        "client_display_id": user.get("display_id"),
         **job_data.model_dump(),
         "status": JobStatus.OPEN.value,
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -896,7 +900,7 @@ async def create_job(job_data: JobPostCreate, user = Depends(get_current_user)):
             user_id=profile["user_id"],
             title="New Job Alert! 🔔",
             body=f"New {job_data.category} job posted: {job_data.title} - KSh {job_data.budget}",
-            data={"type": "new_job", "job_id": job_id}
+            data={"type": "new_job", "job_id": job_id, "job_display_id": job_display_id}
         )
     
     return {"message": "Job posted successfully", "job": {k: v for k, v in job_doc.items() if k != "_id"}}
