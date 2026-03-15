@@ -1958,12 +1958,135 @@ async def get_all_transactions(user = Depends(get_current_user)):
     
     # Enrich with user data
     for payment in payments:
-        client = await db.users.find_one({"id": payment["client_id"]}, {"name": 1, "_id": 0})
-        prof = await db.users.find_one({"id": payment["professional_id"]}, {"name": 1, "_id": 0})
+        client = await db.users.find_one({"id": payment["client_id"]}, {"name": 1, "display_id": 1, "_id": 0})
+        prof = await db.users.find_one({"id": payment["professional_id"]}, {"name": 1, "display_id": 1, "_id": 0})
         payment["client_name"] = client["name"] if client else "Unknown"
+        payment["client_display_id"] = client.get("display_id") if client else None
         payment["professional_name"] = prof["name"] if prof else "Unknown"
+        payment["professional_display_id"] = prof.get("display_id") if prof else None
     
     return payments
+
+@api_router.get("/admin/ledger")
+async def get_ledger(
+    entry_type: Optional[str] = None,
+    user_id: Optional[str] = None,
+    limit: int = 100,
+    skip: int = 0,
+    user = Depends(get_current_user)
+):
+    """Get all ledger entries with optional filtering"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    query = {}
+    if entry_type:
+        query["entry_type"] = entry_type
+    if user_id:
+        query["$or"] = [{"user_id": user_id}, {"related_user_id": user_id}]
+    
+    total = await db.ledger.count_documents(query)
+    entries = await db.ledger.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit).to_list(limit)
+    
+    # Enrich with user names
+    for entry in entries:
+        if entry.get("user_id") and entry["user_id"] != "platform":
+            u = await db.users.find_one({"id": entry["user_id"]}, {"name": 1, "display_id": 1, "_id": 0})
+            entry["user_name"] = u["name"] if u else "Unknown"
+            entry["user_display_id"] = u.get("display_id") if u else None
+        elif entry.get("user_id") == "platform":
+            entry["user_name"] = "Platform"
+            entry["user_display_id"] = "PLATFORM"
+        
+        if entry.get("related_user_id"):
+            ru = await db.users.find_one({"id": entry["related_user_id"]}, {"name": 1, "display_id": 1, "_id": 0})
+            entry["related_user_name"] = ru["name"] if ru else "Unknown"
+            entry["related_user_display_id"] = ru.get("display_id") if ru else None
+    
+    # Calculate summary stats
+    all_entries = await db.ledger.find({}, {"_id": 0}).to_list(10000)
+    
+    summary = {
+        "total_deposits": sum(e["amount"] for e in all_entries if e["entry_type"] == "deposit"),
+        "total_withdrawals": sum(e["amount"] for e in all_entries if e["entry_type"] == "withdrawal"),
+        "total_escrow_in": sum(e["amount"] for e in all_entries if e["entry_type"] == "escrow_in"),
+        "total_escrow_out": sum(e["amount"] for e in all_entries if e["entry_type"] == "escrow_out"),
+        "total_platform_fees": sum(e["amount"] for e in all_entries if e["entry_type"] == "platform_fee"),
+        "total_professional_payouts": sum(e["amount"] for e in all_entries if e["entry_type"] == "professional_payout"),
+        "entry_counts": {
+            "deposit": len([e for e in all_entries if e["entry_type"] == "deposit"]),
+            "withdrawal": len([e for e in all_entries if e["entry_type"] == "withdrawal"]),
+            "escrow_in": len([e for e in all_entries if e["entry_type"] == "escrow_in"]),
+            "escrow_out": len([e for e in all_entries if e["entry_type"] == "escrow_out"]),
+            "platform_fee": len([e for e in all_entries if e["entry_type"] == "platform_fee"]),
+            "professional_payout": len([e for e in all_entries if e["entry_type"] == "professional_payout"])
+        }
+    }
+    
+    return {
+        "entries": entries,
+        "total": total,
+        "limit": limit,
+        "skip": skip,
+        "summary": summary
+    }
+
+@api_router.get("/admin/ledger/user/{user_id}")
+async def get_user_ledger(user_id: str, user = Depends(get_current_user)):
+    """Get all ledger entries for a specific user"""
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    
+    entries = await db.ledger.find(
+        {"$or": [{"user_id": user_id}, {"related_user_id": user_id}]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(500)
+    
+    # Get user info
+    target_user = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    
+    # Calculate user's ledger summary
+    credits = sum(e["amount"] for e in entries if e["user_id"] == user_id and e["entry_type"] in ["deposit", "professional_payout", "refund"])
+    debits = sum(e["amount"] for e in entries if e["user_id"] == user_id and e["entry_type"] in ["withdrawal", "escrow_in"])
+    
+    return {
+        "user": target_user,
+        "entries": entries,
+        "summary": {
+            "total_credits": credits,
+            "total_debits": debits,
+            "net_balance": credits - debits,
+            "current_wallet_balance": target_user.get("wallet_balance", 0) if target_user else 0
+        }
+    }
+
+@api_router.get("/ledger/my")
+async def get_my_ledger(user = Depends(get_current_user)):
+    """Get current user's ledger entries"""
+    entries = await db.ledger.find(
+        {"$or": [{"user_id": user["id"]}, {"related_user_id": user["id"]}]},
+        {"_id": 0}
+    ).sort("created_at", -1).to_list(100)
+    
+    # Enrich with related user names
+    for entry in entries:
+        if entry.get("related_user_id"):
+            ru = await db.users.find_one({"id": entry["related_user_id"]}, {"name": 1, "display_id": 1, "_id": 0})
+            entry["related_user_name"] = ru["name"] if ru else "Unknown"
+            entry["related_user_display_id"] = ru.get("display_id") if ru else None
+    
+    # Calculate summary
+    credits = sum(e["amount"] for e in entries if e["user_id"] == user["id"] and e["entry_type"] in ["deposit", "professional_payout", "refund"])
+    debits = sum(e["amount"] for e in entries if e["user_id"] == user["id"] and e["entry_type"] in ["withdrawal", "escrow_in"])
+    
+    return {
+        "entries": entries,
+        "summary": {
+            "total_credits": credits,
+            "total_debits": debits,
+            "current_balance": user.get("wallet_balance", 0)
+        }
+    }
 
 # ============= DASHBOARD DATA =============
 @api_router.get("/dashboard/client")
