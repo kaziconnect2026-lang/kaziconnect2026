@@ -440,8 +440,18 @@ async def register(user_data: UserCreate):
         raise HTTPException(status_code=400, detail="Email already registered")
     
     user_id = str(uuid.uuid4())
+    
+    # Generate role-specific display ID
+    if user_data.role == UserRole.CLIENT:
+        display_id = await generate_client_id()
+    elif user_data.role == UserRole.PROFESSIONAL:
+        display_id = await generate_professional_id()
+    else:
+        display_id = f"ADM-{str(uuid.uuid4())[:5].upper()}"
+    
     user_doc = {
         "id": user_id,
+        "display_id": display_id,
         "email": user_data.email,
         "name": user_data.name,
         "phone": user_data.phone,
@@ -464,6 +474,7 @@ async def register(user_data: UserCreate):
         access_token=token,
         user=UserResponse(
             id=user_id,
+            display_id=display_id,
             email=user_data.email,
             name=user_data.name,
             phone=user_data.phone,
