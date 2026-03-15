@@ -583,20 +583,36 @@ async def deposit_to_wallet(deposit: DepositRequest, user = Depends(get_current_
     if deposit.amount > 100000:
         raise HTTPException(status_code=400, detail="Maximum deposit is KSh 100,000")
     
-    # Create transaction record
+    # Generate transaction ID
+    txn_id = await generate_transaction_id()
+    
+    # Create wallet transaction record
     transaction_id = str(uuid.uuid4())
     transaction_doc = {
         "id": transaction_id,
+        "transaction_id": txn_id,
         "user_id": user["id"],
+        "user_display_id": user.get("display_id"),
         "type": "deposit",
         "amount": deposit.amount,
         "status": "completed",  # MOCKED - instant success
-        "reference": f"MPESA-DEP-{transaction_id[:8].upper()}",
+        "reference": f"MPESA-DEP-{txn_id}",
         "phone_number": deposit.phone_number,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
     await db.wallet_transactions.insert_one(transaction_doc)
+    
+    # Create ledger entry
+    await create_ledger_entry(
+        entry_type=LedgerEntryType.DEPOSIT,
+        user_id=user["id"],
+        amount=deposit.amount,
+        description=f"Wallet deposit via M-Pesa from {deposit.phone_number}",
+        reference_id=txn_id,
+        reference_type="wallet_deposit",
+        metadata={"phone_number": deposit.phone_number, "mpesa_ref": transaction_doc["reference"]}
+    )
     
     # Update wallet balance
     await db.users.update_one(
@@ -609,7 +625,7 @@ async def deposit_to_wallet(deposit: DepositRequest, user = Depends(get_current_
     
     return {
         "message": "Deposit successful (MOCKED)",
-        "transaction_id": transaction_id,
+        "transaction_id": txn_id,
         "amount": deposit.amount,
         "new_balance": updated_user.get("wallet_balance", 0.0)
     }
@@ -624,20 +640,36 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
     if withdrawal.amount > current_balance:
         raise HTTPException(status_code=400, detail="Insufficient wallet balance")
     
-    # Create transaction record
+    # Generate transaction ID
+    txn_id = await generate_transaction_id()
+    
+    # Create wallet transaction record
     transaction_id = str(uuid.uuid4())
     transaction_doc = {
         "id": transaction_id,
+        "transaction_id": txn_id,
         "user_id": user["id"],
+        "user_display_id": user.get("display_id"),
         "type": "withdrawal",
         "amount": withdrawal.amount,
         "status": "completed",  # MOCKED - instant success
-        "reference": f"MPESA-WD-{transaction_id[:8].upper()}",
+        "reference": f"MPESA-WD-{txn_id}",
         "phone_number": withdrawal.phone_number,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
     await db.wallet_transactions.insert_one(transaction_doc)
+    
+    # Create ledger entry
+    await create_ledger_entry(
+        entry_type=LedgerEntryType.WITHDRAWAL,
+        user_id=user["id"],
+        amount=withdrawal.amount,
+        description=f"Wallet withdrawal to M-Pesa {withdrawal.phone_number}",
+        reference_id=txn_id,
+        reference_type="wallet_withdrawal",
+        metadata={"phone_number": withdrawal.phone_number, "mpesa_ref": transaction_doc["reference"]}
+    )
     
     # Update wallet balance
     await db.users.update_one(
@@ -650,7 +682,7 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
     
     return {
         "message": "Withdrawal successful (MOCKED) - Sent to M-Pesa",
-        "transaction_id": transaction_id,
+        "transaction_id": txn_id,
         "amount": withdrawal.amount,
         "new_balance": updated_user.get("wallet_balance", 0.0)
     }
