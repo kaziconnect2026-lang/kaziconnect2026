@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 import { useAuth } from "../context/AuthContext";
 import axios from "axios";
 import { toast } from "sonner";
-import { ArrowLeft, MapPin } from "lucide-react";
+import { ArrowLeft, MapPin, Search } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -18,6 +18,7 @@ export default function PostJob() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [categories, setCategories] = useState([]);
+  const [categorySearch, setCategorySearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     title: "",
