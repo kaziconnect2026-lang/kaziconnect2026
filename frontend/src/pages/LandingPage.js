@@ -31,7 +31,8 @@ export default function LandingPage() {
     const fetchCategories = async () => {
       try {
         const response = await axios.get(`${API}/categories`);
-        setCategories(response.data);
+        // Show first 8 categories for landing page
+        setCategories(response.data.slice(0, 8));
       } catch (error) {
         console.error("Failed to fetch categories:", error);
       }
