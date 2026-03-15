@@ -14,7 +14,7 @@ import {
   Home, Users, Briefcase, DollarSign, Star, TrendingUp, 
   Calendar, LogOut, Menu, X, BarChart3, PieChart, Activity,
   ArrowUpRight, ArrowDownRight, Search, Filter, CheckCircle2,
-  Clock, XCircle, Wallet, Bell, Shield, ChevronRight
+  Clock, XCircle, Wallet, Bell, Shield, ChevronRight, FileText
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
