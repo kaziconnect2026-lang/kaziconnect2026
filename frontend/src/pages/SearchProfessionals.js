@@ -163,9 +163,9 @@ export default function SearchProfessionals() {
           </Select>
         </div>
 
-        {/* Category Pills */}
+        {/* Category Pills - Show first 8 popular categories */}
         <div className="flex flex-wrap gap-2 mb-8">
-          {categories.map((cat) => {
+          {Object.values(categories).flat().slice(0, 12).map((cat) => {
             const IconComponent = categoryIcons[cat.id] || Sparkles;
             return (
               <button
