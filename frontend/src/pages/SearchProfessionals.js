@@ -100,6 +100,7 @@ export default function SearchProfessionals() {
   const handleCategoryChange = (value) => {
     setSelectedCategory(value === "all" ? "" : value);
     setSearchParams(value === "all" ? {} : { category: value });
+    setCategorySearch("");
   };
 
   return (
