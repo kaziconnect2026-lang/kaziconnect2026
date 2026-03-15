@@ -147,10 +147,17 @@ export default function SearchProfessionals() {
             <SelectTrigger className="w-48 rounded-xl" data-testid="category-filter">
               <SelectValue placeholder="All Categories" />
             </SelectTrigger>
-            <SelectContent>
+            <SelectContent className="max-h-80">
               <SelectItem value="all">All Categories</SelectItem>
-              {categories.map((cat) => (
-                <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+              {Object.entries(categories).map(([groupName, groupCats]) => (
+                <div key={groupName}>
+                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground bg-muted/50 sticky top-0">
+                    {groupName}
+                  </div>
+                  {groupCats.map((cat) => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                  ))}
+                </div>
               ))}
             </SelectContent>
           </Select>
