@@ -30,9 +30,8 @@ export default function LandingPage() {
   useEffect(() => {
     const fetchCategories = async () => {
       try {
-        const response = await axios.get(`${API}/categories`);
-        // Show first 8 categories for landing page
-        setCategories(response.data.slice(0, 8));
+        const response = await axios.get(`${API}/categories/featured`);
+        setCategories(response.data);
       } catch (error) {
         console.error("Failed to fetch categories:", error);
       }
