@@ -183,6 +183,48 @@ export default function CreateProfile() {
           </CardHeader>
           <CardContent>
             <form onSubmit={handleSubmit} className="space-y-6">
+              {/* Profile Photo Section */}
+              <div className="flex flex-col items-center pb-6 border-b border-border">
+                <div className="relative">
+                  <div className="w-28 h-28 bg-muted rounded-full flex items-center justify-center overflow-hidden border-4 border-background shadow-lg">
+                    {photoPreview ? (
+                      <img 
+                        src={photoPreview} 
+                        alt="Profile" 
+                        className="w-full h-full object-cover"
+                        data-testid="profile-photo-preview"
+                      />
+                    ) : (
+                      <User className="w-12 h-12 text-muted-foreground" />
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    className="absolute bottom-0 right-0 w-9 h-9 bg-primary rounded-full flex items-center justify-center text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors"
+                    disabled={uploadingPhoto}
+                    data-testid="upload-photo-btn"
+                  >
+                    {uploadingPhoto ? (
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    ) : (
+                      <Camera className="w-4 h-4" />
+                    )}
+                  </button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handlePhotoSelect}
+                    data-testid="photo-file-input"
+                  />
+                </div>
+                <p className="text-sm text-muted-foreground mt-3">
+                  {photoPreview ? "Tap to change photo" : "Add a profile photo"}
+                </p>
+              </div>
+
               <div className="space-y-2">
                 <Label htmlFor="profession">Profession</Label>
                 <Select 
