@@ -45,6 +45,11 @@ export default function CreateProfile() {
         ]);
         setCategories(categoriesRes.data);
         
+        // Set user profile photo if exists
+        if (user?.profile_photo) {
+          setPhotoPreview(user.profile_photo);
+        }
+        
         // Try to fetch existing profile
         try {
           const profileRes = await axios.get(`${API}/professionals/profile`);
@@ -69,7 +74,7 @@ export default function CreateProfile() {
       }
     };
     fetchData();
-  }, []);
+  }, [user]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
