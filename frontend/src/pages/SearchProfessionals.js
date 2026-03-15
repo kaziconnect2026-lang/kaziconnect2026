@@ -35,6 +35,7 @@ export default function SearchProfessionals() {
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get("category") || "");
   const [professionals, setProfessionals] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [categorySearch, setCategorySearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [aiMatching, setAiMatching] = useState(false);
 
