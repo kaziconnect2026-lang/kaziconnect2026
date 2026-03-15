@@ -168,13 +168,14 @@ All M-Pesa operations are mocked with instant success:
 - Payment Initiation: Creates escrow_in ledger entry immediately
 - Payment Release: Creates escrow_out, platform_fee, professional_payout entries
 
-## Test Results (Latest)
-- **Backend**: 100% (16/16 ledger tests passed)
-- **Frontend**: 100% (All ledger UI elements working)
+## Test Results (Latest - March 2026)
+- **Backend**: 100% (14/14 profile tests passed)
+- **Frontend**: 100% (All profile UI elements working)
 
 ## Test Credentials
 - **Admin**: admin@kazilinks.com / admin123
-- **Client**: ledgertest@test.com / test123
+- **Client**: client@test.com / password
+- **Professional**: pro@test.com / password
 
 ## Ledger Summary Observed
 - Total Deposits: KSh 22,500
