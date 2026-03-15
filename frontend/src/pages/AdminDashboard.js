@@ -232,6 +232,15 @@ export default function AdminDashboard() {
               <Activity className="w-5 h-5" />
               <span>Activity</span>
             </button>
+            <Link 
+              to="/admin/ledger"
+              className="w-full flex items-center gap-3 p-3 rounded-xl transition-colors hover:bg-muted"
+              data-testid="nav-ledger"
+            >
+              <FileText className="w-5 h-5" />
+              <span>Ledger</span>
+              <ChevronRight className="w-4 h-4 ml-auto" />
+            </Link>
           </nav>
 
           <div className="pt-6 border-t border-border">
