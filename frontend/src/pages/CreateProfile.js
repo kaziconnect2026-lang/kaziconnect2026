@@ -41,7 +41,7 @@ export default function CreateProfile() {
     const fetchData = async () => {
       try {
         const [categoriesRes] = await Promise.all([
-          axios.get(`${API}/categories`)
+          axios.get(`${API}/categories/grouped`)
         ]);
         setCategories(categoriesRes.data);
         
