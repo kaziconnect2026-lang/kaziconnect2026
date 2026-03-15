@@ -929,6 +929,11 @@ async def get_categories_grouped():
         groups[group].append(cat)
     return groups
 
+@api_router.get("/categories/featured")
+async def get_featured_categories():
+    """Get featured categories with images for landing page"""
+    return FEATURED_CATEGORIES
+
 # ============= PROFESSIONAL PROFILE ENDPOINTS =============
 @api_router.post("/professionals/profile")
 async def create_professional_profile(profile_data: ProfessionalProfileCreate, user = Depends(get_current_user)):
