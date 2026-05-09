@@ -14,6 +14,8 @@ import jwt
 import bcrypt
 from enum import Enum
 from emergentintegrations.llm.chat import LlmChat, UserMessage
+from fastapi import Request
+import mpesa_service
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -733,58 +735,193 @@ async def get_wallet_transactions(user = Depends(get_current_user)):
 
 @api_router.post("/wallet/deposit")
 async def deposit_to_wallet(deposit: DepositRequest, user = Depends(get_current_user)):
-    """Deposit money to wallet (M-Pesa - MOCKED)"""
+    """Deposit money to wallet via M-Pesa STK Push (Lipa Na M-Pesa Online)."""
     if deposit.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
     if deposit.amount > 100000:
         raise HTTPException(status_code=400, detail="Maximum deposit is KSh 100,000")
-    
-    # Generate transaction ID
+
+    phone = mpesa_service.normalize_phone(deposit.phone_number)
+    if not phone.startswith("254") or len(phone) != 12:
+        raise HTTPException(status_code=400, detail="Invalid Kenyan phone number. Use format 2547XXXXXXXX or 07XXXXXXXX")
+
+    # Generate transaction reference
     txn_id = await generate_transaction_id()
-    
-    # Create wallet transaction record
-    transaction_id = str(uuid.uuid4())
+    reference = f"DEP-{txn_id}"
+
+    # Initiate STK Push with Safaricom
+    try:
+        stk_response = await mpesa_service.stk_push(
+            phone_number=phone,
+            amount=deposit.amount,
+            account_reference=reference,
+            transaction_desc="Wallet Deposit",
+        )
+    except Exception as e:
+        logger.exception("M-Pesa STK push failed for user %s", user["id"])
+        raise HTTPException(status_code=502, detail=f"M-Pesa request failed: {str(e)}")
+
+    checkout_request_id = stk_response.get("CheckoutRequestID")
+    merchant_request_id = stk_response.get("MerchantRequestID")
+
+    # Persist pending transaction. Wallet balance and ledger entry are only updated after Safaricom callback confirms success.
     transaction_doc = {
-        "id": transaction_id,
+        "id": str(uuid.uuid4()),
         "transaction_id": txn_id,
         "user_id": user["id"],
         "user_display_id": user.get("display_id"),
         "type": "deposit",
         "amount": deposit.amount,
-        "status": "completed",  # MOCKED - instant success
-        "reference": f"MPESA-DEP-{txn_id}",
-        "phone_number": deposit.phone_number,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "status": "pending",
+        "reference": reference,
+        "phone_number": phone,
+        "checkout_request_id": checkout_request_id,
+        "merchant_request_id": merchant_request_id,
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    
     await db.wallet_transactions.insert_one(transaction_doc)
-    
-    # Create ledger entry
-    await create_ledger_entry(
-        entry_type=LedgerEntryType.DEPOSIT,
-        user_id=user["id"],
-        amount=deposit.amount,
-        description=f"Wallet deposit via M-Pesa from {deposit.phone_number}",
-        reference_id=txn_id,
-        reference_type="wallet_deposit",
-        metadata={"phone_number": deposit.phone_number, "mpesa_ref": transaction_doc["reference"]}
-    )
-    
-    # Update wallet balance
-    await db.users.update_one(
-        {"id": user["id"]},
-        {"$inc": {"wallet_balance": deposit.amount}}
-    )
-    
-    # Get new balance
-    updated_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    
+
     return {
-        "message": "Deposit successful (MOCKED)",
+        "message": "STK Push sent. Check your phone and enter your M-Pesa PIN to complete the deposit.",
         "transaction_id": txn_id,
+        "checkout_request_id": checkout_request_id,
+        "merchant_request_id": merchant_request_id,
+        "customer_message": stk_response.get("CustomerMessage"),
         "amount": deposit.amount,
-        "new_balance": updated_user.get("wallet_balance", 0.0)
+        "status": "pending",
     }
+
+
+@api_router.get("/wallet/deposit/status/{checkout_request_id}")
+async def get_deposit_status(checkout_request_id: str, user = Depends(get_current_user)):
+    """Poll the status of an M-Pesa deposit transaction by CheckoutRequestID."""
+    txn = await db.wallet_transactions.find_one(
+        {"checkout_request_id": checkout_request_id, "user_id": user["id"]},
+        {"_id": 0},
+    )
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    # If still pending and older than ~10s, query Safaricom directly as fallback
+    if txn.get("status") == "pending":
+        try:
+            created_at = datetime.fromisoformat(txn["created_at"])
+            if datetime.now(timezone.utc) - created_at > timedelta(seconds=10):
+                query_resp = await mpesa_service.query_stk_status(checkout_request_id)
+                # Result codes: "0" success, "1032" cancelled, "1037" timeout, "1" insufficient funds, etc.
+                result_code = query_resp.get("ResultCode")
+                if result_code is not None and str(result_code) != "0" and str(result_code) != "1037":
+                    # Mark as failed if Safaricom says it definitively failed (not still in progress)
+                    if str(result_code) not in ["1037", ""]:
+                        await db.wallet_transactions.update_one(
+                            {"checkout_request_id": checkout_request_id, "status": "pending"},
+                            {"$set": {
+                                "status": "failed",
+                                "failure_code": str(result_code),
+                                "failure_reason": query_resp.get("ResultDesc"),
+                                "failed_at": datetime.now(timezone.utc).isoformat(),
+                            }},
+                        )
+        except Exception:
+            pass  # Polling fallback is best-effort
+
+        txn = await db.wallet_transactions.find_one(
+            {"checkout_request_id": checkout_request_id, "user_id": user["id"]},
+            {"_id": 0},
+        )
+
+    new_balance = (await db.users.find_one({"id": user["id"]}, {"_id": 0, "wallet_balance": 1}) or {}).get("wallet_balance", 0.0)
+
+    return {
+        "status": txn.get("status"),
+        "amount": txn.get("amount"),
+        "mpesa_receipt": txn.get("mpesa_receipt"),
+        "failure_reason": txn.get("failure_reason"),
+        "new_balance": new_balance,
+    }
+
+
+@api_router.post("/mpesa/callback/{secret}")
+async def mpesa_callback(secret: str, request: Request):
+    """
+    Safaricom M-Pesa STK Push callback endpoint.
+    Always returns 200 OK to prevent Safaricom retries; processing logged & idempotent.
+    """
+    expected_secret = os.environ.get("MPESA_CALLBACK_SECRET", "")
+    if not expected_secret or secret != expected_secret:
+        logger.warning("M-Pesa callback received with invalid secret: %s", secret)
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    try:
+        payload = await request.json()
+    except Exception:
+        logger.warning("M-Pesa callback received with invalid JSON")
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    logger.info("M-Pesa callback received: %s", payload)
+
+    parsed = mpesa_service.parse_callback(payload)
+    checkout_request_id = parsed.get("checkout_request_id")
+    if not checkout_request_id:
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    # Idempotency: only process if currently pending
+    txn = await db.wallet_transactions.find_one({"checkout_request_id": checkout_request_id})
+    if not txn:
+        logger.warning("M-Pesa callback for unknown CheckoutRequestID: %s", checkout_request_id)
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+    if txn.get("status") != "pending":
+        logger.info("M-Pesa callback already processed for %s", checkout_request_id)
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    if parsed.get("result_code") == 0:
+        # Success path
+        confirmed_amount = parsed.get("amount") or txn["amount"]
+        await db.wallet_transactions.update_one(
+            {"checkout_request_id": checkout_request_id, "status": "pending"},
+            {"$set": {
+                "status": "completed",
+                "amount": confirmed_amount,
+                "mpesa_receipt": parsed.get("mpesa_receipt"),
+                "mpesa_transaction_date": parsed.get("transaction_date"),
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+
+        # Create immutable ledger entry and credit wallet
+        await create_ledger_entry(
+            entry_type=LedgerEntryType.DEPOSIT,
+            user_id=txn["user_id"],
+            amount=confirmed_amount,
+            description=f"Wallet deposit via M-Pesa from {txn.get('phone_number')}",
+            reference_id=txn.get("transaction_id"),
+            reference_type="wallet_deposit",
+            metadata={
+                "phone_number": txn.get("phone_number"),
+                "mpesa_receipt": parsed.get("mpesa_receipt"),
+                "checkout_request_id": checkout_request_id,
+            },
+        )
+
+        await db.users.update_one(
+            {"id": txn["user_id"]},
+            {"$inc": {"wallet_balance": confirmed_amount}},
+        )
+        logger.info("M-Pesa deposit completed: %s KSh %s", checkout_request_id, confirmed_amount)
+    else:
+        # Failure / cancellation path
+        await db.wallet_transactions.update_one(
+            {"checkout_request_id": checkout_request_id, "status": "pending"},
+            {"$set": {
+                "status": "failed",
+                "failure_code": str(parsed.get("result_code")),
+                "failure_reason": parsed.get("result_desc"),
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        logger.info("M-Pesa deposit failed: %s - %s", checkout_request_id, parsed.get("result_desc"))
+
+    return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
 @api_router.post("/wallet/withdraw")
 async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get_current_user)):

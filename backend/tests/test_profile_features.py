@@ -9,7 +9,7 @@ import pytest
 import requests
 import os
 
-BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://local-experts-27.preview.emergentagent.com').rstrip('/')
+BASE_URL = os.environ.get('REACT_APP_BACKEND_URL', 'https://hire-skilled-pros.preview.emergentagent.com').rstrip('/')
 
 class TestClientProfileFeatures:
     """Tests for client profile page functionality"""
