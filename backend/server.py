@@ -364,10 +364,11 @@ class ReviewCreate(BaseModel):
     comment: str
 
 class MatchRequest(BaseModel):
-    job_description: str
-    category: str
-    location: str
-    budget: float
+    job_description: Optional[str] = None
+    query: Optional[str] = None  # Free-text natural language query
+    category: Optional[str] = None
+    location: Optional[str] = None
+    budget: Optional[float] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None
 
@@ -1666,90 +1667,191 @@ async def reject_bid(bid_id: str, user = Depends(get_current_user)):
 async def ai_match_professionals(match_request: MatchRequest, user = Depends(get_current_user)):
     if user["role"] != "client":
         raise HTTPException(status_code=403, detail="Only clients can request matches")
-    
-    # Get available professionals in the category
-    professionals = await db.professional_profiles.find(
-        {"availability": True, "profession": {"$regex": match_request.category, "$options": "i"}},
-        {"_id": 0}
-    ).to_list(50)
-    
-    if not professionals:
-        return {"matches": [], "message": "No professionals available in this category"}
-    
-    # Enrich with user data
-    for prof in professionals:
-        user_data = await db.users.find_one({"id": prof["user_id"]}, {"_id": 0, "password_hash": 0})
-        prof["user"] = user_data
-    
-    # Use AI for intelligent matching if we have the key
-    if EMERGENT_LLM_KEY:
+
+    # Combine all natural-language signals from the request into one query string
+    raw_query = " ".join([
+        (match_request.query or "").strip(),
+        (match_request.job_description or "").strip(),
+    ]).strip()
+
+    if not raw_query and not match_request.category:
+        raise HTTPException(status_code=400, detail="Please describe what you need or provide a category")
+
+    # === Step 1: Use Gemini Flash to extract structured intent from the natural-language query ===
+    parsed_intent = {
+        "name": None,
+        "profession": match_request.category if isinstance(match_request.category, str) else None,
+        "skills": [],
+        "location": match_request.location if isinstance(match_request.location, str) else None,
+        "summary": raw_query,
+    }
+
+    if raw_query and EMERGENT_LLM_KEY:
         try:
-            chat = LlmChat(
+            parser_chat = LlmChat(
                 api_key=EMERGENT_LLM_KEY,
-                session_id=f"match-{uuid.uuid4()}",
-                system_message="""You are an AI assistant for Kazi Links, a professional services marketplace.
-                Your task is to rank professionals based on job requirements.
-                Consider: skills match, location proximity, ratings, pricing, and experience.
-                Return a JSON array of professional IDs in order of best match, with a brief reason for each."""
+                session_id=f"match-parse-{uuid.uuid4()}",
+                system_message=(
+                    "You are an intent parser for a Kenyan services marketplace called Kazi Links. "
+                    "Given a user's free-text search, extract structured filters. "
+                    "Return ONLY a strict JSON object with keys: name (string|null - person's first or full name if mentioned), "
+                    "profession (string|null - the trade or job title like 'plumber', 'mechanic', 'electrician', 'barber'), "
+                    "skills (array of short skill keywords like ['fix sink', 'leak repair']), "
+                    "location (string|null - city, suburb, or 'near me'). "
+                    "Do not include explanations, only the JSON."
+                ),
             ).with_model("gemini", "gemini-3-flash-preview")
-            
-            prof_summary = "\n".join([
-                f"ID: {p['user_id']}, Name: {p['user'].get('name', 'N/A')}, "
-                f"Skills: {', '.join(p.get('skills', []))}, "
-                f"Rating: {p.get('rating', 0)}/5, "
-                f"Rate: KSh {p.get('hourly_rate', 'N/A')}/hr, "
-                f"Experience: {p.get('experience_years', 0)} years, "
-                f"Location: {p['user'].get('location', 'N/A')}"
-                for p in professionals
-            ])
-            
-            user_message = UserMessage(
-                text=f"""Job Requirements:
-                - Description: {match_request.job_description}
-                - Category: {match_request.category}
-                - Location: {match_request.location}
-                - Budget: KSh {match_request.budget}
-                
-                Available Professionals:
-                {prof_summary}
-                
-                Rank these professionals from best to worst match. Return only a JSON array like:
-                [{{"id": "user_id", "rank": 1, "match_score": 95, "reason": "Best match because..."}}]"""
+
+            parse_resp = await parser_chat.send_message(
+                UserMessage(text=f"User search: \"{raw_query}\"\nReturn JSON only.")
             )
-            
-            response = await chat.send_message(user_message)
-            
-            # Parse AI response and sort professionals
-            import json
-            try:
-                # Extract JSON from response
-                json_start = response.find('[')
-                json_end = response.rfind(']') + 1
-                if json_start >= 0 and json_end > json_start:
-                    rankings = json.loads(response[json_start:json_end])
-                    
-                    # Sort professionals by AI ranking
-                    ranked_ids = {r["id"]: r for r in rankings}
-                    sorted_professionals = sorted(
-                        professionals,
-                        key=lambda p: ranked_ids.get(p["user_id"], {}).get("rank", 999)
-                    )
-                    
-                    # Add match info
-                    for prof in sorted_professionals:
-                        if prof["user_id"] in ranked_ids:
-                            prof["match_score"] = ranked_ids[prof["user_id"]].get("match_score", 0)
-                            prof["match_reason"] = ranked_ids[prof["user_id"]].get("reason", "")
-                    
-                    return {"matches": sorted_professionals[:10], "ai_powered": True}
-            except json.JSONDecodeError:
-                logger.warning("Could not parse AI response, using fallback ranking")
+            import json as _json
+            j_start = parse_resp.find("{")
+            j_end = parse_resp.rfind("}") + 1
+            if j_start >= 0 and j_end > j_start:
+                extracted = _json.loads(parse_resp[j_start:j_end])
+                if isinstance(extracted, dict):
+                    name_val = extracted.get("name")
+                    if isinstance(name_val, str) and name_val.strip():
+                        parsed_intent["name"] = name_val.strip()
+                    prof_val = extracted.get("profession")
+                    if isinstance(prof_val, str) and prof_val.strip():
+                        parsed_intent["profession"] = prof_val.strip()
+                    skills_val = extracted.get("skills") or []
+                    if isinstance(skills_val, list):
+                        parsed_intent["skills"] = [s.strip() for s in skills_val if isinstance(s, str) and s.strip()]
+                    loc_val = extracted.get("location")
+                    if isinstance(loc_val, str) and loc_val.strip() and loc_val.strip().lower() != "near me":
+                        parsed_intent["location"] = loc_val.strip()
         except Exception as e:
-            logger.error(f"AI matching error: {e}")
-    
-    # Fallback: Sort by rating
-    sorted_professionals = sorted(professionals, key=lambda p: p.get("rating", 0), reverse=True)
-    return {"matches": sorted_professionals[:10], "ai_powered": False}
+            logger.warning(f"AI intent parsing failed, using fallback: {e}")
+
+    # === Step 2: Build a broad MongoDB query using extracted filters (OR across signals) ===
+    or_clauses = []
+    profession = parsed_intent["profession"]
+    if isinstance(profession, str) and profession:
+        or_clauses.append({"profession": {"$regex": profession, "$options": "i"}})
+        or_clauses.append({"skills": {"$regex": profession, "$options": "i"}})
+        or_clauses.append({"bio": {"$regex": profession, "$options": "i"}})
+    for skill in parsed_intent["skills"]:
+        if isinstance(skill, str) and len(skill) > 1:
+            or_clauses.append({"skills": {"$regex": skill, "$options": "i"}})
+            or_clauses.append({"bio": {"$regex": skill, "$options": "i"}})
+            or_clauses.append({"profession": {"$regex": skill, "$options": "i"}})
+
+    if isinstance(raw_query, str) and len(raw_query) > 1:
+        or_clauses.append({"profession": {"$regex": raw_query, "$options": "i"}})
+        or_clauses.append({"bio": {"$regex": raw_query, "$options": "i"}})
+        or_clauses.append({"skills": {"$regex": raw_query, "$options": "i"}})
+
+    db_query = {"availability": True}
+    if or_clauses:
+        db_query["$or"] = or_clauses
+
+    professionals = await db.professional_profiles.find(db_query, {"_id": 0}).to_list(80)
+
+    # Enrich with user data; also do post-filter for name and location since those live on the user doc
+    name_q = (parsed_intent["name"] or "").lower().strip()
+    loc_q = (parsed_intent["location"] or "").lower().strip()
+    enriched = []
+    for prof in professionals:
+        u = await db.users.find_one({"id": prof["user_id"]}, {"_id": 0, "password_hash": 0})
+        if not u:
+            continue
+        prof["user"] = _strip_phone(u)
+        enriched.append(prof)
+
+    if name_q:
+        enriched = [
+            p for p in enriched
+            if name_q in (p["user"].get("name") or "").lower()
+            or name_q in (p["user"].get("username") or "").lower()
+            or name_q in (p["user"].get("display_id") or "").lower()
+        ]
+
+    if loc_q:
+        with_loc = [p for p in enriched if loc_q in (p["user"].get("location") or "").lower()]
+        if with_loc:
+            enriched = with_loc
+
+    # Permissive name fallback (search by name across all available pros if name was extracted but no matches)
+    if not enriched and name_q:
+        all_pros = await db.professional_profiles.find({"availability": True}, {"_id": 0}).to_list(200)
+        for prof in all_pros:
+            u = await db.users.find_one({"id": prof["user_id"]}, {"_id": 0, "password_hash": 0})
+            if not u:
+                continue
+            user_name = (u.get("name") or "").lower()
+            user_uname = (u.get("username") or "").lower()
+            if name_q in user_name or name_q in user_uname:
+                prof["user"] = _strip_phone(u)
+                enriched.append(prof)
+
+    if not enriched:
+        return {
+            "matches": [],
+            "ai_powered": bool(EMERGENT_LLM_KEY),
+            "intent": parsed_intent,
+            "message": "No professionals matched your search. Try a different keyword, profession, or location.",
+        }
+
+    # === Step 3: Use Gemini Flash to rank by relevance to original query ===
+    if raw_query and EMERGENT_LLM_KEY and len(enriched) > 1:
+        try:
+            ranker = LlmChat(
+                api_key=EMERGENT_LLM_KEY,
+                session_id=f"match-rank-{uuid.uuid4()}",
+                system_message=(
+                    "You rank service professionals by relevance to a user's search. "
+                    "Consider: profession match, skill match, name match if user named someone, location proximity, rating, experience, and price. "
+                    "Return ONLY a JSON array."
+                ),
+            ).with_model("gemini", "gemini-3-flash-preview")
+
+            prof_summary = "\n".join([
+                f"ID: {p['user_id']} | Name: {p['user'].get('name','')} | Profession: {p.get('profession','')} | "
+                f"Skills: {', '.join(p.get('skills') or [])} | Bio: {(p.get('bio') or '')[:140]} | "
+                f"Rating: {p.get('rating',0)}/5 | Rate: KSh {p.get('hourly_rate','N/A')}/hr | "
+                f"Experience: {p.get('experience_years',0)}y | Location: {p['user'].get('location','')}"
+                for p in enriched[:30]
+            ])
+
+            rank_resp = await ranker.send_message(UserMessage(text=(
+                f"User search: \"{raw_query}\"\n"
+                f"Extracted intent: {parsed_intent}\n\n"
+                f"Candidates:\n{prof_summary}\n\n"
+                "Return a JSON array sorted best-first like: "
+                '[{"id":"<user_id>","match_score":0-100,"reason":"short reason"}]'
+            )))
+
+            import json as _json
+            j_start = rank_resp.find("[")
+            j_end = rank_resp.rfind("]") + 1
+            if j_start >= 0 and j_end > j_start:
+                rankings = _json.loads(rank_resp[j_start:j_end])
+                rank_map = {r["id"]: r for r in rankings if isinstance(r, dict) and r.get("id")}
+                enriched.sort(
+                    key=lambda p: (
+                        rank_map.get(p["user_id"], {}).get("match_score", -1),
+                        p.get("rating", 0),
+                    ),
+                    reverse=True,
+                )
+                for p in enriched:
+                    if p["user_id"] in rank_map:
+                        p["match_score"] = rank_map[p["user_id"]].get("match_score", 0)
+                        p["match_reason"] = rank_map[p["user_id"]].get("reason", "")
+                return {
+                    "matches": enriched[:15],
+                    "ai_powered": True,
+                    "intent": parsed_intent,
+                }
+        except Exception as e:
+            logger.warning(f"AI ranking failed, using rating fallback: {e}")
+
+    # Fallback: sort by rating
+    enriched.sort(key=lambda p: p.get("rating", 0), reverse=True)
+    return {"matches": enriched[:15], "ai_powered": False, "intent": parsed_intent}
 
 # ============= BOOKING ENDPOINTS =============
 @api_router.post("/bookings")

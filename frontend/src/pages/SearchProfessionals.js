@@ -78,27 +78,32 @@ export default function SearchProfessionals() {
   }, [selectedCategory, searchQuery, locationQuery, minRating]);
 
   const handleAIMatch = async () => {
-    if (!searchQuery) {
-      toast.error("Please describe what you need");
+    if (!searchQuery.trim()) {
+      toast.error("Type what you need (e.g., 'plumber to fix sink in Westlands')");
       return;
     }
-    
+
     setAiMatching(true);
     try {
       const response = await axios.post(`${API}/match`, {
-        job_description: searchQuery,
-        category: selectedCategory || "general",
-        location: user?.location || "Nairobi",
-        budget: 5000,
+        query: searchQuery.trim(),
+        category: selectedCategory || null,
+        location: locationQuery.trim() || user?.location || null,
       });
-      
-      setProfessionals(response.data.matches);
-      if (response.data.ai_powered) {
-        toast.success("AI-powered matches found!");
+
+      const matches = response.data.matches || [];
+      setProfessionals(matches);
+
+      if (matches.length === 0) {
+        toast.info(response.data.message || "No professionals matched. Try a different keyword.");
+      } else if (response.data.ai_powered) {
+        toast.success(`AI found ${matches.length} match${matches.length === 1 ? "" : "es"}`);
+      } else {
+        toast.success(`${matches.length} professional${matches.length === 1 ? "" : "s"} found`);
       }
     } catch (error) {
       console.error("AI matching failed:", error);
-      toast.error("AI matching failed, showing regular results");
+      toast.error(error.response?.data?.detail || "AI matching failed. Try again.");
     } finally {
       setAiMatching(false);
     }
