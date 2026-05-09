@@ -216,23 +216,33 @@ All M-Pesa operations are mocked with instant success:
 
 ## Roadmap (Backlog)
 
+### Recently Completed
+- ✅ **Real M-Pesa Daraja STK Push integration for wallet deposits** (Dec 2025)
+  - `mpesa_service.py` module: OAuth, STK push, callback parsing, status query
+  - `POST /api/wallet/deposit` — initiates real Safaricom STK Push, stores pending transaction
+  - `POST /api/mpesa/callback/{secret}` — Safaricom webhook, idempotent, credits wallet only on `ResultCode=0` and writes immutable ledger entry
+  - `GET /api/wallet/deposit/status/{checkout_request_id}` — polled by frontend with 90s timeout
+  - Frontend `WalletPage.js` updated with STK push UX (toast prompts, status polling)
+  - Sandbox: shortcode `174379`, callback URL routed via `REACT_APP_BACKEND_URL`
+  - Withdrawals (B2C) remain mocked
+
 ### P0 - Critical (Refactoring)
-- Backend `server.py` refactoring (2000+ lines) into modular structure:
+- Backend `server.py` refactoring (2400+ lines) into modular structure:
   - `/app/backend/routes/` - API endpoints
   - `/app/backend/models/` - Pydantic models
   - `/app/backend/services/` - Business logic
 
 ### P1 - High Priority
-- Real M-Pesa integration (deposits)
-- Export ledger to CSV/PDF
-- Real push notifications via FCM
-- ID photo upload for professional verification
+- Remove group headers from category dropdowns (`CreateProfile.js`, `PostJob.js`, `SearchProfessionals.js`)
+- ID photo upload for professional verification (model + UI)
+- Web Push Notifications frontend (service worker + permissions UI)
+- Real M-Pesa B2C withdrawals (production go-live; needs Initiator credentials & security cert)
 
 ### P2 - Medium Priority
 - In-app messaging/chat
-- Email notifications
+- Email notifications (SendGrid / Resend)
 - Advanced reporting
-- Map-based geolocation search
+- Map-based geolocation search (Google Maps)
 
 ### P3 - Future
 - Native mobile app

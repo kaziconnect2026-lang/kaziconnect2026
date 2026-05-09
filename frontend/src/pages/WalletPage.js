@@ -56,20 +56,57 @@ export default function WalletPage() {
       toast.error("Please enter a valid amount");
       return;
     }
+    if (!depositData.phone_number || depositData.phone_number.trim().length < 9) {
+      toast.error("Please enter your M-Pesa phone number");
+      return;
+    }
     
     setProcessing(true);
     try {
       const response = await axios.post(`${API}/wallet/deposit`, {
         amount: parseFloat(depositData.amount),
-        phone_number: depositData.phone_number || user?.phone || "254712345678"
+        phone_number: depositData.phone_number || user?.phone || ""
       });
       
-      toast.success(`Deposited KSh ${parseFloat(depositData.amount).toLocaleString()}`);
-      setBalance(response.data.new_balance);
+      const { checkout_request_id, customer_message } = response.data;
+      toast.success(customer_message || "Check your phone — enter your M-Pesa PIN to complete");
       setDepositOpen(false);
-      setDepositData({ amount: "", phone_number: "" });
-      fetchWalletData();
-      if (refreshUser) refreshUser();
+
+      // Poll for transaction status (every 3s, up to 90s)
+      const pollToast = toast.loading("Waiting for M-Pesa confirmation...");
+      let attempts = 0;
+      const maxAttempts = 30;
+      const interval = setInterval(async () => {
+        attempts++;
+        try {
+          const statusRes = await axios.get(`${API}/wallet/deposit/status/${checkout_request_id}`);
+          const { status, new_balance, mpesa_receipt, failure_reason } = statusRes.data;
+          if (status === "completed") {
+            clearInterval(interval);
+            toast.dismiss(pollToast);
+            toast.success(`Deposit confirmed! Receipt: ${mpesa_receipt || "—"}`);
+            setBalance(new_balance);
+            setDepositData({ amount: "", phone_number: "" });
+            fetchWalletData();
+            if (refreshUser) refreshUser();
+          } else if (status === "failed") {
+            clearInterval(interval);
+            toast.dismiss(pollToast);
+            toast.error(failure_reason || "M-Pesa deposit failed or was cancelled");
+            fetchWalletData();
+          } else if (attempts >= maxAttempts) {
+            clearInterval(interval);
+            toast.dismiss(pollToast);
+            toast.message("Still pending — refresh later to see status");
+            fetchWalletData();
+          }
+        } catch (err) {
+          if (attempts >= maxAttempts) {
+            clearInterval(interval);
+            toast.dismiss(pollToast);
+          }
+        }
+      }, 3000);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Deposit failed");
     } finally {
@@ -183,10 +220,10 @@ export default function WalletPage() {
                       </div>
                     </div>
                     
-                    <div className="p-3 bg-yellow-50 rounded-xl text-sm">
-                      <p className="flex items-center gap-2 text-yellow-800">
+                    <div className="p-3 bg-green-50 rounded-xl text-sm">
+                      <p className="flex items-center gap-2 text-green-800">
                         <AlertCircle className="w-4 h-4" />
-                        M-Pesa deposit is MOCKED for demo
+                        You'll receive an M-Pesa STK Push prompt — enter your PIN to confirm
                       </p>
                     </div>
                     
