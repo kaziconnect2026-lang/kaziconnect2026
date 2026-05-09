@@ -32,6 +32,8 @@ export default function SearchProfessionals() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
+  const [locationQuery, setLocationQuery] = useState(searchParams.get("location") || "");
+  const [minRating, setMinRating] = useState(searchParams.get("min_rating") || "");
   const [selectedCategory, setSelectedCategory] = useState(searchParams.get("category") || "");
   const [professionals, setProfessionals] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -57,7 +59,10 @@ export default function SearchProfessionals() {
       try {
         const params = new URLSearchParams();
         if (selectedCategory) params.append("category", selectedCategory);
-        
+        if (searchQuery.trim()) params.append("q", searchQuery.trim());
+        if (locationQuery.trim()) params.append("location", locationQuery.trim());
+        if (minRating) params.append("min_rating", minRating);
+
         const response = await axios.get(`${API}/professionals/search?${params.toString()}`);
         setProfessionals(response.data);
       } catch (error) {
@@ -67,8 +72,10 @@ export default function SearchProfessionals() {
         setLoading(false);
       }
     };
-    fetchProfessionals();
-  }, [selectedCategory]);
+    // Debounce text inputs by 300ms; categories & rating fire immediately
+    const t = setTimeout(fetchProfessionals, 300);
+    return () => clearTimeout(t);
+  }, [selectedCategory, searchQuery, locationQuery, minRating]);
 
   const handleAIMatch = async () => {
     if (!searchQuery) {
@@ -117,7 +124,7 @@ export default function SearchProfessionals() {
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
                 <Input
                   type="text"
-                  placeholder="What service do you need?"
+                  placeholder="Search by name, profession or skill..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="pl-10 h-11 rounded-xl"
@@ -185,6 +192,54 @@ export default function SearchProfessionals() {
               )}
             </SelectContent>
           </Select>
+
+          {/* Location filter */}
+          <div className="relative">
+            <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+            <Input
+              type="text"
+              placeholder="Location"
+              value={locationQuery}
+              onChange={(e) => setLocationQuery(e.target.value)}
+              className="pl-9 w-44 h-10 rounded-xl"
+              data-testid="location-filter"
+            />
+          </div>
+
+          {/* Rating filter */}
+          <Select
+            value={minRating || "any"}
+            onValueChange={(v) => setMinRating(v === "any" ? "" : v)}
+          >
+            <SelectTrigger className="w-40 rounded-xl" data-testid="rating-filter">
+              <SelectValue placeholder="Any rating" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="any">Any rating</SelectItem>
+              <SelectItem value="4.5">4.5+ stars</SelectItem>
+              <SelectItem value="4">4+ stars</SelectItem>
+              <SelectItem value="3">3+ stars</SelectItem>
+              <SelectItem value="2">2+ stars</SelectItem>
+            </SelectContent>
+          </Select>
+
+          {(searchQuery || locationQuery || minRating || selectedCategory) && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setSearchQuery("");
+                setLocationQuery("");
+                setMinRating("");
+                setSelectedCategory("");
+                setSearchParams({});
+              }}
+              className="text-muted-foreground hover:text-foreground"
+              data-testid="clear-filters-btn"
+            >
+              Clear
+            </Button>
+          )}
         </div>
 
         {/* Category Pills - Show first 8 popular categories */}

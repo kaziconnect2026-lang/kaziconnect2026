@@ -338,7 +338,22 @@ export default function ProfessionalProfile() {
                   </div>
                   <div className="flex items-center gap-3 text-sm">
                     <Phone className="w-4 h-4 text-muted-foreground" />
-                    <span>{professional.user?.phone || "Phone not available"}</span>
+                    {professional.phone_visible && professional.user?.phone ? (
+                      <a
+                        href={`tel:${professional.user.phone}`}
+                        className="text-primary hover:underline"
+                        data-testid="pro-phone"
+                      >
+                        {professional.user.phone}
+                      </a>
+                    ) : (
+                      <span
+                        className="text-muted-foreground italic"
+                        data-testid="pro-phone-hidden"
+                      >
+                        Hidden — visible after booking is confirmed
+                      </span>
+                    )}
                   </div>
                 </div>
               </CardContent>

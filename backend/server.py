@@ -409,6 +409,46 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except jwt.InvalidTokenError:
         raise HTTPException(status_code=401, detail="Invalid token")
 
+
+optional_security = HTTPBearer(auto_error=False)
+
+async def get_optional_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(optional_security),
+):
+    """Return current user if a valid token is provided; otherwise None."""
+    if credentials is None:
+        return None
+    try:
+        payload = jwt.decode(credentials.credentials, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        user_id = payload.get("sub")
+        if not user_id:
+            return None
+        user = await db.users.find_one({"id": user_id}, {"_id": 0})
+        return user
+    except Exception:
+        return None
+
+
+PHONE_VISIBILITY_BOOKING_STATUSES = ["confirmed", "in_progress", "completed"]
+
+
+async def _has_active_booking(client_id: str, professional_id: str) -> bool:
+    """Check if the client has any booking with the professional that is confirmed or beyond."""
+    booking = await db.bookings.find_one({
+        "client_id": client_id,
+        "professional_id": professional_id,
+        "status": {"$in": PHONE_VISIBILITY_BOOKING_STATUSES},
+    })
+    return booking is not None
+
+
+def _strip_phone(user_doc: dict) -> dict:
+    """Return a copy of the user dict without the phone field."""
+    if not user_doc:
+        return user_doc
+    safe = {k: v for k, v in user_doc.items() if k != "phone"}
+    return safe
+
 async def require_role(required_roles: List[UserRole]):
     async def role_checker(user = Depends(get_current_user)):
         if user["role"] not in [r.value for r in required_roles]:
@@ -1053,18 +1093,21 @@ async def mark_notification_read(notification_id: str, user = Depends(get_curren
 # ============= CATEGORIES ENDPOINT =============
 @api_router.get("/categories")
 async def get_categories():
-    return PROFESSIONAL_CATEGORIES
+    return sorted(PROFESSIONAL_CATEGORIES, key=lambda c: c.get("name", "").lower())
 
 @api_router.get("/categories/grouped")
 async def get_categories_grouped():
-    """Get categories organized by group"""
+    """Get categories organized by group, sorted alphabetically within each group."""
     groups = {}
     for cat in PROFESSIONAL_CATEGORIES:
         group = cat.get("group", "Other")
         if group not in groups:
             groups[group] = []
         groups[group].append(cat)
-    return groups
+    for group in groups:
+        groups[group].sort(key=lambda c: c.get("name", "").lower())
+    # Return groups sorted alphabetically by group name as well
+    return {k: groups[k] for k in sorted(groups.keys(), key=str.lower)}
 
 @api_router.get("/categories/featured")
 async def get_featured_categories():
@@ -1135,45 +1178,93 @@ async def toggle_availability(available: bool, user = Depends(get_current_user))
 
 @api_router.get("/professionals/search")
 async def search_professionals(
+    q: Optional[str] = None,
     category: Optional[str] = None,
     location: Optional[str] = None,
     min_rating: Optional[float] = None,
-    max_rate: Optional[float] = None
+    max_rate: Optional[float] = None,
 ):
+    """Search professionals by name, category, location, rating, or rate."""
     query = {"availability": True}
-    
+
     if category:
         query["profession"] = {"$regex": category, "$options": "i"}
-    
-    professionals = await db.professional_profiles.find(query, {"_id": 0}).to_list(100)
-    
-    # Enrich with user data
+
+    professionals = await db.professional_profiles.find(query, {"_id": 0}).to_list(200)
+
+    q_lower = (q or "").strip().lower()
+    location_lower = (location or "").strip().lower()
+
     enriched = []
     for prof in professionals:
-        user = await db.users.find_one({"id": prof["user_id"]}, {"_id": 0, "password_hash": 0})
-        if user:
-            prof["user"] = user
-            if min_rating and prof.get("rating", 0) < min_rating:
+        user = await db.users.find_one(
+            {"id": prof["user_id"]},
+            {"_id": 0, "password_hash": 0},
+        )
+        if not user:
+            continue
+
+        # Filter: name / username / skills text search
+        if q_lower:
+            name = (user.get("name") or "").lower()
+            username = (user.get("username") or "").lower()
+            display_id = (user.get("display_id") or "").lower()
+            profession = (prof.get("profession") or "").lower()
+            skills = " ".join(prof.get("skills") or []).lower()
+            bio = (prof.get("bio") or "").lower()
+            haystack = f"{name} {username} {display_id} {profession} {skills} {bio}"
+            if q_lower not in haystack:
                 continue
-            if max_rate and prof.get("hourly_rate", 0) > max_rate:
+
+        # Filter: location (case-insensitive substring match)
+        if location_lower:
+            user_location = (user.get("location") or "").lower()
+            if location_lower not in user_location:
                 continue
-            enriched.append(prof)
-    
+
+        # Filter: minimum rating
+        if min_rating is not None and (prof.get("rating") or 0) < float(min_rating):
+            continue
+
+        # Filter: maximum hourly rate
+        if max_rate is not None and (prof.get("hourly_rate") or 0) > float(max_rate):
+            continue
+
+        # Hide phone in list view (only revealed after a confirmed booking)
+        prof["user"] = _strip_phone(user)
+        enriched.append(prof)
+
+    # Sort by rating desc by default for better UX
+    enriched.sort(key=lambda p: p.get("rating") or 0, reverse=True)
     return enriched
 
 @api_router.get("/professionals/{professional_id}")
-async def get_professional_detail(professional_id: str):
+async def get_professional_detail(
+    professional_id: str,
+    requester = Depends(get_optional_user),
+):
     profile = await db.professional_profiles.find_one({"user_id": professional_id}, {"_id": 0})
     if not profile:
         raise HTTPException(status_code=404, detail="Professional not found")
-    
+
     user = await db.users.find_one({"id": professional_id}, {"_id": 0, "password_hash": 0})
-    profile["user"] = user
-    
+
+    # Phone is only visible if requester has a confirmed/in_progress/completed booking with this pro,
+    # OR if the requester IS the professional themselves, OR an admin.
+    can_see_phone = False
+    if requester:
+        if requester.get("id") == professional_id or requester.get("role") == "admin":
+            can_see_phone = True
+        elif await _has_active_booking(requester["id"], professional_id):
+            can_see_phone = True
+
+    profile["user"] = user if can_see_phone else _strip_phone(user)
+    profile["phone_visible"] = can_see_phone
+
     # Get reviews
     reviews = await db.reviews.find({"professional_id": professional_id}, {"_id": 0}).to_list(50)
     profile["reviews"] = reviews
-    
+
     return profile
 
 # ============= JOB POSTING ENDPOINTS =============
