@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
+import re
 import logging
 import secrets
 import hashlib
@@ -1800,33 +1801,133 @@ async def ai_match_professionals(match_request: MatchRequest, user = Depends(get
             "message": "No professionals matched your search. Try a different keyword, profession, or location.",
         }
 
-    # === Step 3: Use Gemini Flash to rank by relevance to original query ===
-    if raw_query and EMERGENT_LLM_KEY and len(enriched) > 1:
+    # === Step 3: Hybrid deterministic scoring (BM25-style lexical + quality signals) ===
+    # Best-fit for this marketplace: text relevance + rating quality (Bayesian) +
+    # experience + activity + location + availability. AI then refines top candidates.
+
+    raw_tokens = [t.lower() for t in re.findall(r"\w+", raw_query) if len(t) > 1]
+    intent_tokens = list({
+        *raw_tokens,
+        *[t for s in parsed_intent["skills"] for t in re.findall(r"\w+", s.lower()) if len(t) > 1],
+        *([parsed_intent["profession"].lower()] if parsed_intent["profession"] else []),
+    })
+    name_q = (parsed_intent["name"] or "").lower().strip()
+    loc_q = (parsed_intent["location"] or "").lower().strip()
+
+    # Global rating mean for Bayesian smoothing
+    rating_stats = await db.professional_profiles.aggregate([
+        {"$match": {"total_reviews": {"$gt": 0}}},
+        {"$group": {"_id": None, "avg": {"$avg": "$rating"}}},
+    ]).to_list(1)
+    global_avg_rating = float(rating_stats[0]["avg"]) if rating_stats else 3.5
+
+    def _score(prof):
+        u = prof["user"]
+        profession_t = (prof.get("profession") or "").lower()
+        skills_t = " ".join(prof.get("skills") or []).lower()
+        bio_t = (prof.get("bio") or "").lower()
+        name_t = (u.get("name") or "").lower()
+        user_loc_t = (u.get("location") or "").lower()
+
+        # Text relevance (max 40) — weighted: profession 3, name 3, skills 2, bio 1
+        text_hits = 0
+        max_per_token = 9  # 3+3+2+1
+        for tok in intent_tokens:
+            if not tok:
+                continue
+            if tok in profession_t:
+                text_hits += 3
+            if tok in name_t:
+                text_hits += 3
+            if tok in skills_t:
+                text_hits += 2
+            if tok in bio_t:
+                text_hits += 1
+        denom = max_per_token * max(len(intent_tokens), 1)
+        text_score = min(40.0, (text_hits / denom) * 40.0) if denom else 0.0
+        # Explicit name match short-circuit (very high signal)
+        if name_q and name_q in name_t:
+            text_score = max(text_score, 38.0)
+
+        # Bayesian rating (max 20) — smooths new pros toward global mean
+        rating = float(prof.get("rating") or 0)
+        n_reviews = int(prof.get("total_reviews") or 0)
+        C = 5
+        bayes = (rating * n_reviews + global_avg_rating * C) / max(n_reviews + C, 1)
+        rating_score = (bayes / 5.0) * 20.0
+
+        # Experience (max 10)
+        exp_years = float(prof.get("experience_years") or 0)
+        experience_score = min(exp_years / 10.0, 1.0) * 10.0
+
+        # Activity (max 10)
+        total_jobs = int(prof.get("total_jobs") or 0)
+        activity_score = min(total_jobs / 30.0, 1.0) * 10.0
+
+        # Location (max 15)
+        if loc_q:
+            if loc_q == user_loc_t and user_loc_t:
+                location_score = 15.0
+            elif user_loc_t and (loc_q in user_loc_t or user_loc_t in loc_q):
+                location_score = 8.0
+            else:
+                location_score = 0.0
+        else:
+            location_score = 6.0  # neutral when no location preference
+
+        # Availability (max 5)
+        availability_score = 5.0 if prof.get("availability") else 0.0
+
+        breakdown = {
+            "text": round(text_score, 1),
+            "rating": round(rating_score, 1),
+            "experience": round(experience_score, 1),
+            "activity": round(activity_score, 1),
+            "location": round(location_score, 1),
+            "availability": round(availability_score, 1),
+        }
+        total = sum(breakdown.values())
+        return round(total, 1), breakdown
+
+    for p in enriched:
+        det_score, breakdown = _score(p)
+        p["_deterministic_score"] = det_score
+        p["_score_breakdown"] = breakdown
+
+    enriched.sort(key=lambda p: p["_deterministic_score"], reverse=True)
+    top_candidates = enriched[:20]
+
+    # === Step 4: AI refinement on top candidates — gives a tailored relevance score + reason ===
+    ai_used = False
+    ai_score_map = {}  # user_id -> {"ai_score": 0-100, "reason": str}
+    if raw_query and EMERGENT_LLM_KEY and len(top_candidates) >= 1:
         try:
             ranker = LlmChat(
                 api_key=EMERGENT_LLM_KEY,
                 session_id=f"match-rank-{uuid.uuid4()}",
                 system_message=(
-                    "You rank service professionals by relevance to a user's search. "
-                    "Consider: profession match, skill match, name match if user named someone, location proximity, rating, experience, and price. "
-                    "Return ONLY a JSON array."
+                    "You evaluate how well each service professional matches a user's natural-language "
+                    "search for a Kenyan services marketplace. For each candidate, output a JSON object "
+                    "with: id (string, the user_id), ai_score (integer 0-100 — how relevant for THIS "
+                    "user's specific need), reason (short, friendly, max 18 words, explains why this pro fits)."
+                    " Return ONLY a JSON array."
                 ),
             ).with_model("gemini", "gemini-3-flash-preview")
 
             prof_summary = "\n".join([
-                f"ID: {p['user_id']} | Name: {p['user'].get('name','')} | Profession: {p.get('profession','')} | "
-                f"Skills: {', '.join(p.get('skills') or [])} | Bio: {(p.get('bio') or '')[:140]} | "
-                f"Rating: {p.get('rating',0)}/5 | Rate: KSh {p.get('hourly_rate','N/A')}/hr | "
-                f"Experience: {p.get('experience_years',0)}y | Location: {p['user'].get('location','')}"
-                for p in enriched[:30]
+                f"- ID:{p['user_id']} | Name:{p['user'].get('name','')} | "
+                f"Profession:{p.get('profession','')} | Skills:{', '.join(p.get('skills') or [])[:120]} | "
+                f"Bio:{(p.get('bio') or '')[:140]} | Rating:{p.get('rating',0)}/5 ({p.get('total_reviews',0)} reviews) | "
+                f"Rate:KSh {p.get('hourly_rate','N/A')}/hr | Exp:{p.get('experience_years',0)}y | "
+                f"Location:{p['user'].get('location','')}"
+                for p in top_candidates
             ])
 
             rank_resp = await ranker.send_message(UserMessage(text=(
                 f"User search: \"{raw_query}\"\n"
                 f"Extracted intent: {parsed_intent}\n\n"
                 f"Candidates:\n{prof_summary}\n\n"
-                "Return a JSON array sorted best-first like: "
-                '[{"id":"<user_id>","match_score":0-100,"reason":"short reason"}]'
+                'Return a JSON array: [{"id":"<user_id>","ai_score":0-100,"reason":"<short reason>"}]'
             )))
 
             import json as _json
@@ -1834,29 +1935,72 @@ async def ai_match_professionals(match_request: MatchRequest, user = Depends(get
             j_end = rank_resp.rfind("]") + 1
             if j_start >= 0 and j_end > j_start:
                 rankings = _json.loads(rank_resp[j_start:j_end])
-                rank_map = {r["id"]: r for r in rankings if isinstance(r, dict) and r.get("id")}
-                enriched.sort(
-                    key=lambda p: (
-                        rank_map.get(p["user_id"], {}).get("match_score", -1),
-                        p.get("rating", 0),
-                    ),
-                    reverse=True,
-                )
-                for p in enriched:
-                    if p["user_id"] in rank_map:
-                        p["match_score"] = rank_map[p["user_id"]].get("match_score", 0)
-                        p["match_reason"] = rank_map[p["user_id"]].get("reason", "")
-                return {
-                    "matches": enriched[:15],
-                    "ai_powered": True,
-                    "intent": parsed_intent,
-                }
+                for r in rankings:
+                    if not isinstance(r, dict):
+                        continue
+                    rid = r.get("id")
+                    if not rid:
+                        continue
+                    ai_score_map[rid] = {
+                        "ai_score": max(0, min(100, int(r.get("ai_score", r.get("match_score", 0)) or 0))),
+                        "reason": (r.get("reason") or "")[:200],
+                    }
+                ai_used = bool(ai_score_map)
         except Exception as e:
-            logger.warning(f"AI ranking failed, using rating fallback: {e}")
+            logger.warning(f"AI hybrid refinement failed, using deterministic only: {e}")
 
-    # Fallback: sort by rating
-    enriched.sort(key=lambda p: p.get("rating", 0), reverse=True)
-    return {"matches": enriched[:15], "ai_powered": False, "intent": parsed_intent}
+    # === Step 5: Blend deterministic (60%) + AI (40%) into final match_score ===
+    def _fallback_reason(p):
+        bits = []
+        prof_name = p.get("profession") or "Professional"
+        bits.append(prof_name)
+        if p.get("rating"):
+            bits.append(f"{p['rating']:.1f}★ ({p.get('total_reviews', 0)} reviews)")
+        if p.get("experience_years"):
+            bits.append(f"{p['experience_years']}y experience")
+        loc = (p["user"].get("location") or "").strip()
+        if loc:
+            bits.append(f"in {loc}")
+        return " · ".join(bits)
+
+    for p in top_candidates:
+        det_norm = p["_deterministic_score"]  # already 0-100
+        ai_entry = ai_score_map.get(p["user_id"])
+        if ai_entry:
+            final = round(0.6 * det_norm + 0.4 * ai_entry["ai_score"])
+            reason = ai_entry["reason"] or _fallback_reason(p)
+        else:
+            final = round(det_norm)
+            reason = _fallback_reason(p)
+        p["match_score"] = max(0, min(100, final))
+        p["match_reason"] = reason
+        p["score_breakdown"] = p.pop("_score_breakdown")
+        p.pop("_deterministic_score", None)
+
+    top_candidates.sort(key=lambda p: (p["match_score"], p.get("rating") or 0), reverse=True)
+
+    return {
+        "matches": top_candidates[:15],
+        "ai_powered": ai_used,
+        "hybrid": True,
+        "intent": parsed_intent,
+        "scoring": {
+            "algorithm": "hybrid_bm25_bayesian_ai",
+            "weights": {
+                "deterministic": 0.6,
+                "ai_refinement": 0.4,
+                "components": {
+                    "text_relevance": 40,
+                    "rating_bayesian": 20,
+                    "location": 15,
+                    "experience": 10,
+                    "activity": 10,
+                    "availability": 5,
+                },
+            },
+            "global_avg_rating": round(global_avg_rating, 2),
+        },
+    }
 
 # ============= BOOKING ENDPOINTS =============
 @api_router.post("/bookings")
