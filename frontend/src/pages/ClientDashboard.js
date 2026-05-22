@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { 
   Search, Plus, Calendar, DollarSign, Clock, 
   MapPin, Star, ChevronRight, LogOut, Home,
-  FileText, User, Bell, Menu, X, Wallet
+  FileText, User, Bell, Menu, X, Wallet, MessageCircle
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -103,6 +103,10 @@ export default function ClientDashboard() {
               <Bell className="w-5 h-5" />
               <span>Notifications</span>
             </Link>
+            <Link to="/messages" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted">
+              <MessageCircle className="w-5 h-5" />
+              <span>Messages</span>
+            </Link>
             <Link to="/client/profile" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted">
               <User className="w-5 h-5" />
               <span>My Profile</span>
@@ -173,6 +177,14 @@ export default function ClientDashboard() {
             >
               <Bell className="w-5 h-5" />
               <span>Notifications</span>
+            </Link>
+            <Link 
+              to="/messages" 
+              className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-colors"
+              data-testid="nav-messages"
+            >
+              <MessageCircle className="w-5 h-5" />
+              <span>Messages</span>
             </Link>
             <Link 
               to="/client/profile" 

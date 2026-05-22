@@ -1,7 +1,7 @@
 # Test Credentials
 
 ## App Auth
-- Admin: `admin@kazilinks.com` / `password` (legacy admins also exist: admin023219@test.com)
+- Admin: `admin@kazilinks.com` / `admin123` (legacy admins also exist: admin023219@test.com)
 - Client: `client@test.com` / `password`
 - Professional: `pro@test.com` / `password`
 

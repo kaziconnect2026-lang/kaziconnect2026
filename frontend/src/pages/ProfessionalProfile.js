@@ -15,7 +15,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { 
   ArrowLeft, Star, MapPin, Clock, DollarSign, Briefcase,
-  Phone, Mail, Calendar as CalendarIcon, CheckCircle2, Shield
+  Phone, Mail, Calendar as CalendarIcon, CheckCircle2, Shield, MessageCircle
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -35,6 +35,20 @@ export default function ProfessionalProfile() {
     agreed_price: ""
   });
   const [submitting, setSubmitting] = useState(false);
+  const [startingChat, setStartingChat] = useState(false);
+
+  const handleStartChat = async () => {
+    if (startingChat) return;
+    setStartingChat(true);
+    try {
+      const res = await axios.post(`${API}/conversations`, { other_user_id: id });
+      navigate(`/messages/${res.data.id}`);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Failed to start conversation");
+    } finally {
+      setStartingChat(false);
+    }
+  };
 
   useEffect(() => {
     const fetchProfessional = async () => {
@@ -239,6 +253,17 @@ export default function ProfessionalProfile() {
                   <span>Secure M-Pesa escrow payment</span>
                 </div>
 
+                <Button
+                  variant="outline"
+                  className="w-full h-12 rounded-xl"
+                  onClick={handleStartChat}
+                  disabled={startingChat}
+                  data-testid="message-pro-btn"
+                >
+                  <MessageCircle className="w-4 h-4 mr-2" />
+                  {startingChat ? "Opening chat..." : "Message"}
+                </Button>
+
                 <Dialog open={bookingOpen} onOpenChange={setBookingOpen}>
                   <DialogTrigger asChild>
                     <Button 
@@ -247,8 +272,7 @@ export default function ProfessionalProfile() {
                     >
                       Book Now
                     </Button>
-                  </DialogTrigger>
-                  <DialogContent className="sm:max-w-md">
+                  </DialogTrigger><DialogContent className="sm:max-w-md">
                     <DialogHeader>
                       <DialogTitle className="font-heading">Book {professional.user?.name}</DialogTitle>
                     </DialogHeader>

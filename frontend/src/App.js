@@ -19,6 +19,11 @@ import WalletPage from "./pages/WalletPage";
 import NotificationsPage from "./pages/NotificationsPage";
 import LedgerPage from "./pages/LedgerPage";
 import ClientProfile from "./pages/ClientProfile";
+import MessagesPage from "./pages/MessagesPage";
+import ChatThreadPage from "./pages/ChatThreadPage";
+import ForgotPasswordPage from "./pages/ForgotPasswordPage";
+import ResetPasswordPage from "./pages/ResetPasswordPage";
+import AdminConversationsPage from "./pages/AdminConversationsPage";
 import "./App.css";
 
 // Protected Route Component
@@ -78,6 +83,8 @@ function App() {
             <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<PublicRoute><LoginPage /></PublicRoute>} />
             <Route path="/register" element={<PublicRoute><RegisterPage /></PublicRoute>} />
+            <Route path="/forgot-password" element={<PublicRoute><ForgotPasswordPage /></PublicRoute>} />
+            <Route path="/reset-password" element={<PublicRoute><ResetPasswordPage /></PublicRoute>} />
             
             {/* Client Routes */}
             <Route path="/client" element={
@@ -154,6 +161,16 @@ function App() {
                 <NotificationsPage />
               </ProtectedRoute>
             } />
+            <Route path="/messages" element={
+              <ProtectedRoute allowedRoles={["client", "professional"]}>
+                <MessagesPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/messages/:conversationId" element={
+              <ProtectedRoute allowedRoles={["client", "professional"]}>
+                <ChatThreadPage />
+              </ProtectedRoute>
+            } />
             
             {/* Admin Routes */}
             <Route path="/admin" element={
@@ -164,6 +181,16 @@ function App() {
             <Route path="/admin/ledger" element={
               <ProtectedRoute allowedRoles={["admin"]}>
                 <LedgerPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/conversations" element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <AdminConversationsPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/conversations/:conversationId" element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <AdminConversationsPage />
               </ProtectedRoute>
             } />
             

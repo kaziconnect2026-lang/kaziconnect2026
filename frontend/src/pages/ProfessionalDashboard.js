@@ -10,7 +10,7 @@ import { toast } from "sonner";
 import { 
   Home, Calendar, DollarSign, Star, TrendingUp, Clock,
   User, LogOut, Menu, X, Settings, Briefcase, ChevronRight,
-  AlertCircle, Send, Eye, BarChart3, Wallet, Bell
+  AlertCircle, Send, Eye, BarChart3, Wallet, Bell, MessageCircle
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -153,6 +153,10 @@ export default function ProfessionalDashboard() {
               <Bell className="w-5 h-5" />
               <span>Notifications</span>
             </Link>
+            <Link to="/messages" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted">
+              <MessageCircle className="w-5 h-5" />
+              <span>Messages</span>
+            </Link>
             <Link to="/create-profile" className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted">
               <Settings className="w-5 h-5" />
               <span>Edit Profile</span>
@@ -236,6 +240,14 @@ export default function ProfessionalDashboard() {
             >
               <Bell className="w-5 h-5" />
               <span>Notifications</span>
+            </Link>
+            <Link 
+              to="/messages" 
+              className="flex items-center gap-3 p-3 rounded-xl hover:bg-muted transition-colors"
+              data-testid="nav-messages"
+            >
+              <MessageCircle className="w-5 h-5" />
+              <span>Messages</span>
             </Link>
             <Link 
               to="/create-profile" 

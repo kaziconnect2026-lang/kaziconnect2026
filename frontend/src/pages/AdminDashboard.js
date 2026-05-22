@@ -14,7 +14,7 @@ import {
   Home, Users, Briefcase, DollarSign, Star, TrendingUp, 
   Calendar, LogOut, Menu, X, BarChart3, PieChart, Activity,
   ArrowUpRight, ArrowDownRight, Search, Filter, CheckCircle2,
-  Clock, XCircle, Wallet, Bell, Shield, ChevronRight, FileText
+  Clock, XCircle, Wallet, Bell, Shield, ChevronRight, FileText, MessageCircle
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -239,6 +239,15 @@ export default function AdminDashboard() {
             >
               <FileText className="w-5 h-5" />
               <span>Ledger</span>
+              <ChevronRight className="w-4 h-4 ml-auto" />
+            </Link>
+            <Link 
+              to="/admin/conversations"
+              className="w-full flex items-center gap-3 p-3 rounded-xl transition-colors hover:bg-muted"
+              data-testid="nav-conversations"
+            >
+              <MessageCircle className="w-5 h-5" />
+              <span>Chat Moderation</span>
               <ChevronRight className="w-4 h-4 ml-auto" />
             </Link>
           </nav>
