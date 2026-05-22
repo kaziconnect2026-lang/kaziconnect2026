@@ -1235,6 +1235,26 @@ async def toggle_availability(available: bool, user = Depends(get_current_user))
     
     return {"message": "Availability updated", "availability": available}
 
+def _apply_sort(results, sort_by):
+    """Apply user-selected sort. Falls back to rating desc when sort_by is unknown."""
+    sort_by = (sort_by or "best_match").lower()
+    if sort_by == "rating":
+        results.sort(key=lambda p: (p.get("rating") or 0, p.get("total_reviews") or 0), reverse=True)
+    elif sort_by == "experience":
+        results.sort(key=lambda p: p.get("experience_years") or 0, reverse=True)
+    elif sort_by == "reviews":
+        results.sort(key=lambda p: p.get("total_reviews") or 0, reverse=True)
+    elif sort_by == "price_low":
+        results.sort(key=lambda p: p.get("hourly_rate") or 9_999_999)
+    elif sort_by == "price_high":
+        results.sort(key=lambda p: p.get("hourly_rate") or 0, reverse=True)
+    else:
+        # best_match: keep current ordering if it was scored; otherwise sort by rating
+        if results and "_score" not in results[0]:
+            results.sort(key=lambda p: (p.get("rating") or 0, p.get("total_reviews") or 0), reverse=True)
+    return results
+
+
 @api_router.get("/professionals/search")
 async def search_professionals(
     q: Optional[str] = None,
@@ -1242,6 +1262,7 @@ async def search_professionals(
     location: Optional[str] = None,
     min_rating: Optional[float] = None,
     max_rate: Optional[float] = None,
+    sort_by: Optional[str] = "best_match",
 ):
     """Search professionals by name, category, location, rating, rate, or semantic intent.
 
@@ -1250,6 +1271,9 @@ async def search_professionals(
       - Token-based weighted scoring across fields
       - Lightweight semantic intent (e.g. "need nails done" → Nail Technician,
         "windshield" → Car Mechanic, "leak" → Plumber). No AI call — fast & deterministic.
+
+    sort_by accepts: best_match (default — text+rating tie-breaker), rating, experience,
+    reviews, price_low, price_high.
     """
     q_trim = (q or "").strip()
     q_lower = q_trim.lower()
@@ -1376,11 +1400,10 @@ async def search_professionals(
         matched.sort(key=lambda p: (p["_score"], p.get("rating") or 0), reverse=True)
         for p in matched:
             p.pop("_score", None)
-        return matched
+        return _apply_sort(matched, sort_by)
 
-    # No free-text — sort by rating
-    enriched.sort(key=lambda p: p.get("rating") or 0, reverse=True)
-    return enriched
+    # No free-text — sort by rating (or whatever user asked)
+    return _apply_sort(enriched, sort_by)
 
 @api_router.get("/professionals/{professional_id}")
 async def get_professional_detail(
