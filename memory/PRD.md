@@ -144,6 +144,20 @@ Comprehensive financial tracking with synchronized wallet operations:
 - Alerts for new jobs and bid acceptance
 - In-app notification center
 
+### ✅ In-App Chat / Messaging (NEW — Feb 2026)
+- Client ↔ Professional conversations (1:1)
+- Real-time polling chat (3s message poll, 5s conversation list poll)
+- Photo & PDF attachments via Emergent Object Storage (max 6 per msg, 5MB each)
+- Per-side unread counter
+- Admin **Chat Moderation** view at `/admin/conversations` for dispute resolution (sees all conversations + messages + attachments, read-only)
+- Sidebar entries: client + pro see "Messages"; admin sees "Chat Moderation"
+- "Message" CTA on `ProfessionalProfile.js` starts a new conversation
+
+### ✅ Forgot / Reset Password (NEW — Feb 2026)
+- Public routes: `/forgot-password`, `/reset-password?token=...`
+- Resend integration with graceful fallback — when `RESEND_API_KEY` is missing, the reset link is logged to backend logs (DEV only) and the API returns a generic success message (no enumeration)
+- 30-minute reset token expiry; SHA-256 hashed at rest; one-time-use
+
 ## API Endpoints
 
 ### Ledger (NEW)
@@ -239,8 +253,8 @@ All M-Pesa operations are mocked with instant success:
 - Real M-Pesa B2C withdrawals (production go-live; needs Initiator credentials & security cert)
 
 ### P2 - Medium Priority
-- In-app messaging/chat
-- Email notifications (SendGrid / Resend)
+- ~~In-app messaging/chat~~ ✅ DONE (Feb 2026)
+- Email notifications (SendGrid / Resend) — partial: Resend wired for password reset, awaiting API key
 - Advanced reporting
 - Map-based geolocation search (Google Maps)
 
