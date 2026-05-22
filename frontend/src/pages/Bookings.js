@@ -559,7 +559,11 @@ export default function Bookings() {
                       mode="single"
                       selected={rebookData.scheduled_date}
                       onSelect={(date) => setRebookData({...rebookData, scheduled_date: date})}
-                      disabled={(date) => date < new Date()}
+                      disabled={(date) => {
+                        const today = new Date();
+                        today.setHours(0, 0, 0, 0);
+                        return date < today;
+                      }}
                     />
                   </PopoverContent>
                 </Popover>

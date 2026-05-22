@@ -305,7 +305,11 @@ export default function ProfessionalProfile() {
                               mode="single"
                               selected={bookingData.scheduled_date}
                               onSelect={(date) => setBookingData({...bookingData, scheduled_date: date})}
-                              disabled={(date) => date < new Date()}
+                              disabled={(date) => {
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                return date < today;
+                              }}
                             />
                           </PopoverContent>
                         </Popover>
