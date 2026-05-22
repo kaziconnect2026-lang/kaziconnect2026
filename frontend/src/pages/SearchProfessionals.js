@@ -101,7 +101,9 @@ export default function SearchProfessionals() {
 
   useEffect(() => {
     const fetchProfessionals = async () => {
-      setLoading(true);
+      // Show spinner only when there's nothing to display; refresh silently otherwise
+      const hasResultsAlready = professionals.length > 0;
+      if (!hasResultsAlready) setLoading(true);
       try {
         const params = new URLSearchParams();
         if (selectedCategory) params.append("category", selectedCategory);

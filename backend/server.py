@@ -54,6 +54,58 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# ============= SEMANTIC SEARCH INTENT MAP =============
+# Lightweight keyword → profession mapping for deterministic semantic search.
+# Each entry maps a primary keyword to {tokens: synonyms, professions: matching profession-name keywords}.
+# Used by /api/professionals/search to interpret phrases like "need nails done", "windshield broken",
+# "leaky tap", "haircut" without an LLM call.
+PROFESSION_INTENT_MAP = {
+    "nails":      {"tokens": ["nail", "manicure", "pedicure", "polish", "acrylic", "gel"], "professions": ["nail technician"]},
+    "hair":       {"tokens": ["braid", "braids", "weave", "weaves", "salon", "dread", "dreadlocks"], "professions": ["hairdresser"]},
+    "haircut":    {"tokens": ["shave", "fade", "trim", "beard", "cut"], "professions": ["barber"]},
+    "barber":     {"tokens": ["beard"], "professions": ["barber"]},
+    "windshield": {"tokens": ["windscreen", "car glass", "auto glass"], "professions": ["car mechanic", "car electrician"]},
+    "car":        {"tokens": ["engine", "brake", "brakes", "transmission", "exhaust", "clutch"], "professions": ["car mechanic"]},
+    "tire":       {"tokens": ["tyre", "puncture", "wheel"], "professions": ["tire repair"]},
+    "leak":       {"tokens": ["leaking", "leaks", "drip", "dripping", "burst"], "professions": ["plumber"]},
+    "sink":       {"tokens": ["faucet", "tap", "basin"], "professions": ["plumber"]},
+    "toilet":     {"tokens": ["wc", "loo", "flush"], "professions": ["plumber"]},
+    "pipe":       {"tokens": ["pipes", "plumbing", "drain", "drainage", "sewer"], "professions": ["plumber"]},
+    "wiring":     {"tokens": ["wire", "wires", "socket", "sockets", "outlet", "outlets", "breaker"], "professions": ["electrician"]},
+    "power":      {"tokens": ["electric", "electrical", "electricity", "blackout", "fuse"], "professions": ["electrician"]},
+    "lights":     {"tokens": ["lighting", "bulb", "lamp"], "professions": ["electrician"]},
+    "paint":      {"tokens": ["painting", "wall", "walls", "ceiling", "repaint"], "professions": ["painter"]},
+    "wood":       {"tokens": ["furniture", "cabinet", "cabinets", "shelf", "shelves", "wardrobe"], "professions": ["carpenter"]},
+    "clean":      {"tokens": ["cleaning", "vacuum", "scrub", "deep clean"], "professions": ["cleaner"]},
+    "window":     {"tokens": ["windows"], "professions": ["window cleaner"]},
+    "tattoo":     {"tokens": ["ink", "tat"], "professions": ["tattoo artist"]},
+    "massage":    {"tokens": ["spa", "therapy"], "professions": ["massage therapist"]},
+    "chef":       {"tokens": ["cook", "cooking", "meal", "catering"], "professions": ["chef", "private chef", "caterer"]},
+    "tutor":      {"tokens": ["tuition", "lesson", "coach", "teach", "teacher"], "professions": ["tutor"]},
+    "photo":      {"tokens": ["photography", "photoshoot", "shoot", "headshot"], "professions": ["photographer"]},
+    "video":      {"tokens": ["videography", "filming", "shoot", "recording"], "professions": ["videographer", "video director"]},
+    "dj":         {"tokens": ["deejay", "music"], "professions": ["dj"]},
+    "event":      {"tokens": ["party", "celebration", "function"], "professions": ["event planner", "event decorator"]},
+    "wedding":    {"tokens": ["bride", "groom"], "professions": ["wedding planner"]},
+    "delivery":   {"tokens": ["courier", "ship"], "professions": ["delivery rider", "courier"]},
+    "boda":       {"tokens": ["bodaboda", "motorbike", "rider"], "professions": ["bodaboda rider"]},
+    "guard":      {"tokens": ["security", "bouncer"], "professions": ["security guard", "bodyguard"]},
+    "nanny":      {"tokens": ["babysitter", "babysit"], "professions": ["nanny"]},
+    "maid":       {"tokens": ["housemaid", "housekeeper", "house help"], "professions": ["housemaid", "house helper"]},
+    "tile":       {"tokens": ["tiles", "tiling"], "professions": ["tiler"]},
+    "weld":       {"tokens": ["welding", "metal", "gate"], "professions": ["welder"]},
+    "mason":      {"tokens": ["masonry", "fundi", "block", "brick"], "professions": ["mason"]},
+    "roof":       {"tokens": ["roofing", "iron sheets"], "professions": ["roofing specialist"]},
+    "ac":         {"tokens": ["aircon", "air-con", "cooling"], "professions": ["appliance repair"]},
+    "fridge":     {"tokens": ["refrigerator", "freezer"], "professions": ["appliance repair"]},
+    "phone":      {"tokens": ["mobile", "smartphone"], "professions": ["electronics repair"]},
+    "laptop":     {"tokens": ["computer", "pc"], "professions": ["electronics repair", "it support"]},
+    "tv":         {"tokens": ["television"], "professions": ["electronics repair"]},
+    "cctv":       {"tokens": ["camera", "surveillance"], "professions": ["cctv installer"]},
+    "wifi":       {"tokens": ["internet", "router", "network"], "professions": ["wifi installer", "it support"]},
+    "solar":      {"tokens": ["panel"], "professions": ["solar installer"]},
+}
+
 # ============= ENUMS =============
 class UserRole(str, Enum):
     CLIENT = "client"
@@ -1191,57 +1243,142 @@ async def search_professionals(
     min_rating: Optional[float] = None,
     max_rate: Optional[float] = None,
 ):
-    """Search professionals by name, category, location, rating, or rate."""
-    query = {"availability": True}
+    """Search professionals by name, category, location, rating, rate, or semantic intent.
 
-    if category:
-        query["profession"] = {"$regex": category, "$options": "i"}
-
-    professionals = await db.professional_profiles.find(query, {"_id": 0}).to_list(200)
-
-    q_lower = (q or "").strip().lower()
+    Free-text search supports:
+      - Exact substring (name / profession / skills / bio)
+      - Token-based weighted scoring across fields
+      - Lightweight semantic intent (e.g. "need nails done" → Nail Technician,
+        "windshield" → Car Mechanic, "leak" → Plumber). No AI call — fast & deterministic.
+    """
+    q_trim = (q or "").strip()
+    q_lower = q_trim.lower()
     location_lower = (location or "").strip().lower()
+    category_in = (category or "").strip().lower()
 
+    # Map category id (snake_case) → profession name regex (e.g. 'tattoo_artist' → 'tattoo artist')
+    category_regex = None
+    if category_in:
+        category_regex = category_in.replace("_", " ").replace("-", " ")
+
+    # Tokenize free-text query
+    raw_tokens = [t for t in re.findall(r"\w+", q_lower) if len(t) > 1]
+
+    # Lightweight semantic intent: keyword → list of profession keywords to expand search
+    expanded_profession_keywords = set()
+    expanded_categories = set()  # for matching against profession field
+    for tok in raw_tokens:
+        for prof_kw, expansions in PROFESSION_INTENT_MAP.items():
+            if tok == prof_kw or tok in expansions["tokens"]:
+                for p in expansions["professions"]:
+                    expanded_profession_keywords.add(p.lower())
+                    expanded_categories.add(p.lower())
+                break
+
+    # Build base Mongo query: category filter narrows aggressively; otherwise broad
+    base_query = {"availability": True}
+    # Words too generic to use as a profession-name fallback alone
+    _GENERIC_TAIL_WORDS = {"technician", "specialist", "expert", "installer", "service",
+                           "agency", "manager", "assistant", "engineer"}
+
+    profession_or_clauses = []
+    for kw in expanded_profession_keywords:
+        profession_or_clauses.append({"profession": {"$regex": kw, "$options": "i"}})
+        # Also try the last word alone (e.g. 'car mechanic' → 'mechanic') unless too generic
+        parts = kw.split()
+        if len(parts) > 1 and parts[-1] not in _GENERIC_TAIL_WORDS:
+            profession_or_clauses.append({"profession": {"$regex": parts[-1], "$options": "i"}})
+
+    if category_regex:
+        # Try the full phrase first
+        category_or = [{"profession": {"$regex": category_regex, "$options": "i"}}]
+        # Add last-word fallback so 'car mechanic' also finds 'Mechanic', 'private chef' finds 'Chef', etc.
+        cat_parts = category_regex.split()
+        if len(cat_parts) > 1 and cat_parts[-1] not in _GENERIC_TAIL_WORDS:
+            category_or.append({"profession": {"$regex": cat_parts[-1], "$options": "i"}})
+        base_query["$or"] = category_or
+    elif profession_or_clauses:
+        base_query["$or"] = profession_or_clauses
+
+    profs = await db.professional_profiles.find(base_query, {"_id": 0}).to_list(300)
+
+    # If semantic narrowing produced nothing, broaden so q can still match by name/skills/bio
+    if not profs and expanded_profession_keywords and not category_regex:
+        broad_query = {"availability": True}
+        profs = await db.professional_profiles.find(broad_query, {"_id": 0}).to_list(300)
+
+    # Enrich with user data
     enriched = []
-    for prof in professionals:
-        user = await db.users.find_one(
-            {"id": prof["user_id"]},
-            {"_id": 0, "password_hash": 0},
-        )
-        if not user:
+    for prof in profs:
+        u = await db.users.find_one({"id": prof["user_id"]}, {"_id": 0, "password_hash": 0})
+        if not u:
             continue
-
-        # Filter: name / username / skills text search
-        if q_lower:
-            name = (user.get("name") or "").lower()
-            username = (user.get("username") or "").lower()
-            display_id = (user.get("display_id") or "").lower()
-            profession = (prof.get("profession") or "").lower()
-            skills = " ".join(prof.get("skills") or []).lower()
-            bio = (prof.get("bio") or "").lower()
-            haystack = f"{name} {username} {display_id} {profession} {skills} {bio}"
-            if q_lower not in haystack:
-                continue
-
-        # Filter: location (case-insensitive substring match)
-        if location_lower:
-            user_location = (user.get("location") or "").lower()
-            if location_lower not in user_location:
-                continue
-
-        # Filter: minimum rating
-        if min_rating is not None and (prof.get("rating") or 0) < float(min_rating):
-            continue
-
-        # Filter: maximum hourly rate
-        if max_rate is not None and (prof.get("hourly_rate") or 0) > float(max_rate):
-            continue
-
-        # Hide phone in list view (only revealed after a confirmed booking)
-        prof["user"] = _strip_phone(user)
+        prof["user"] = _strip_phone(u)
         enriched.append(prof)
 
-    # Sort by rating desc by default for better UX
+    # Apply location, rating, rate filters
+    if location_lower:
+        enriched = [p for p in enriched if location_lower in (p["user"].get("location") or "").lower()]
+    if min_rating is not None:
+        enriched = [p for p in enriched if (p.get("rating") or 0) >= float(min_rating)]
+    if max_rate is not None:
+        enriched = [p for p in enriched if (p.get("hourly_rate") or 0) <= float(max_rate)]
+
+    # If a free-text query is present, score each candidate; otherwise rank by rating
+    if q_trim:
+        def _score(p):
+            u = p["user"]
+            name = (u.get("name") or "").lower()
+            username = (u.get("username") or "").lower()
+            display_id = (u.get("display_id") or "").lower()
+            profession = (p.get("profession") or "").lower()
+            skills = " ".join(p.get("skills") or []).lower()
+            bio = (p.get("bio") or "").lower()
+            haystack = f"{name} {username} {display_id} {profession} {skills} {bio}"
+
+            score = 0
+            # Whole-query substring match (highest signal)
+            if q_lower and q_lower in haystack:
+                score += 50
+            # Per-token weighted match
+            for tok in raw_tokens:
+                if tok in name:        score += 8
+                if tok in username:    score += 5
+                if tok in display_id:  score += 5
+                if tok in profession:  score += 6
+                if tok in skills:      score += 4
+                if tok in bio:         score += 2
+            # Semantic intent: synonyms mapped to professions/skills
+            for sem_kw in expanded_profession_keywords:
+                if sem_kw in profession:
+                    score += 20
+                elif sem_kw in skills or sem_kw in bio:
+                    score += 8
+                else:
+                    # Also try the last word of multi-word profession (e.g. 'mechanic' from 'car mechanic')
+                    parts = sem_kw.split()
+                    if len(parts) > 1 and parts[-1] not in _GENERIC_TAIL_WORDS and parts[-1] in profession:
+                        score += 12
+            # Tie-breaker: small rating boost ONLY when we already have a real content match
+            if score > 0:
+                score += min((p.get("rating") or 0) * 1.5, 7.5)
+            return score
+
+        for p in enriched:
+            p["_score"] = _score(p)
+
+        matched = [p for p in enriched if p["_score"] > 0]
+        # If query had no token hits but the user applied real filters (category/location), still show filter results
+        if not matched and (category_regex or location_lower):
+            matched = enriched
+
+        # Sort by score desc, then rating desc
+        matched.sort(key=lambda p: (p["_score"], p.get("rating") or 0), reverse=True)
+        for p in matched:
+            p.pop("_score", None)
+        return matched
+
+    # No free-text — sort by rating
     enriched.sort(key=lambda p: p.get("rating") or 0, reverse=True)
     return enriched
 
