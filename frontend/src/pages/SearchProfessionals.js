@@ -16,6 +16,33 @@ import {
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
+const CACHE_VERSION = 1;
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+const cacheKey = (userId) => `kazi_search_cache_${userId || "anon"}_v${CACHE_VERSION}`;
+
+const readCache = (userId) => {
+  try {
+    const raw = localStorage.getItem(cacheKey(userId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || (Date.now() - (parsed.timestamp || 0) > CACHE_TTL_MS)) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const writeCache = (userId, data) => {
+  try {
+    localStorage.setItem(
+      cacheKey(userId),
+      JSON.stringify({ ...data, timestamp: Date.now() })
+    );
+  } catch {
+    /* quota or serialization error — ignore */
+  }
+};
+
 const categoryIcons = {
   barber: Scissors,
   electrician: Zap,
@@ -31,15 +58,34 @@ export default function SearchProfessionals() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [searchQuery, setSearchQuery] = useState(searchParams.get("q") || "");
-  const [locationQuery, setLocationQuery] = useState(searchParams.get("location") || "");
-  const [minRating, setMinRating] = useState(searchParams.get("min_rating") || "");
-  const [selectedCategory, setSelectedCategory] = useState(searchParams.get("category") || "");
-  const [professionals, setProfessionals] = useState([]);
+
+  // Hydrate from URL params first; fall back to cached state (URL has any param → ignore cache)
+  const hasUrlFilter =
+    !!searchParams.get("q") ||
+    !!searchParams.get("location") ||
+    !!searchParams.get("min_rating") ||
+    !!searchParams.get("category");
+  const cached = !hasUrlFilter ? readCache(user?.id) : null;
+
+  const [searchQuery, setSearchQuery] = useState(
+    searchParams.get("q") || cached?.filters?.searchQuery || ""
+  );
+  const [locationQuery, setLocationQuery] = useState(
+    searchParams.get("location") || cached?.filters?.locationQuery || ""
+  );
+  const [minRating, setMinRating] = useState(
+    searchParams.get("min_rating") || cached?.filters?.minRating || ""
+  );
+  const [selectedCategory, setSelectedCategory] = useState(
+    searchParams.get("category") || cached?.filters?.selectedCategory || ""
+  );
+  const [professionals, setProfessionals] = useState(cached?.results || []);
   const [categories, setCategories] = useState([]);
   const [categorySearch, setCategorySearch] = useState("");
-  const [loading, setLoading] = useState(true);
+  // Show loading only if there is no cached snapshot to display
+  const [loading, setLoading] = useState(!cached);
   const [aiMatching, setAiMatching] = useState(false);
+  const [fromCache, setFromCache] = useState(!!cached);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -65,6 +111,12 @@ export default function SearchProfessionals() {
 
         const response = await axios.get(`${API}/professionals/search?${params.toString()}`);
         setProfessionals(response.data);
+        setFromCache(false);
+        writeCache(user?.id, {
+          filters: { searchQuery, locationQuery, minRating, selectedCategory },
+          results: response.data,
+          mode: "search",
+        });
       } catch (error) {
         console.error("Failed to fetch professionals:", error);
         toast.error("Failed to load professionals");
@@ -75,7 +127,7 @@ export default function SearchProfessionals() {
     // Debounce text inputs by 300ms; categories & rating fire immediately
     const t = setTimeout(fetchProfessionals, 300);
     return () => clearTimeout(t);
-  }, [selectedCategory, searchQuery, locationQuery, minRating]);
+  }, [selectedCategory, searchQuery, locationQuery, minRating, user?.id]);
 
   const handleAIMatch = async () => {
     if (!searchQuery.trim()) {
@@ -93,6 +145,13 @@ export default function SearchProfessionals() {
 
       const matches = response.data.matches || [];
       setProfessionals(matches);
+      setFromCache(false);
+      writeCache(user?.id, {
+        filters: { searchQuery, locationQuery, minRating, selectedCategory },
+        results: matches,
+        mode: "ai",
+        ai_powered: !!response.data.ai_powered,
+      });
 
       if (matches.length === 0) {
         toast.info(response.data.message || "No professionals matched. Try a different keyword.");
@@ -238,6 +297,8 @@ export default function SearchProfessionals() {
                 setMinRating("");
                 setSelectedCategory("");
                 setSearchParams({});
+                try { localStorage.removeItem(cacheKey(user?.id)); } catch {/* ignore */}
+                setFromCache(false);
               }}
               className="text-muted-foreground hover:text-foreground"
               data-testid="clear-filters-btn"
@@ -276,7 +337,20 @@ export default function SearchProfessionals() {
           </div>
         ) : professionals.length > 0 ? (
           <>
-            <p className="text-muted-foreground mb-4">{professionals.length} professionals found</p>
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+              <p className="text-muted-foreground" data-testid="results-count">
+                {professionals.length} professional{professionals.length === 1 ? "" : "s"} found
+              </p>
+              {fromCache && (
+                <span
+                  className="text-xs text-muted-foreground inline-flex items-center gap-1.5 bg-muted px-2.5 py-1 rounded-full"
+                  data-testid="cached-results-badge"
+                >
+                  <Clock className="w-3 h-3" />
+                  Showing your last search · refreshing...
+                </span>
+              )}
+            </div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
               {professionals.map((pro) => (
                 <Link 
