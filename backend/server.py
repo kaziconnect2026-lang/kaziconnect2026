@@ -1,10 +1,13 @@
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, status
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, status, UploadFile, File, Form
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.responses import Response
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 import os
 import logging
+import secrets
+import hashlib
 from pathlib import Path
 from pydantic import BaseModel, Field, EmailStr
 from typing import List, Optional
@@ -16,6 +19,8 @@ from enum import Enum
 from emergentintegrations.llm.chat import LlmChat, UserMessage
 from fastapi import Request
 import mpesa_service
+import storage_service
+import email_service
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -2728,6 +2733,392 @@ async def get_professional_dashboard(user = Depends(get_current_user)):
         "available_jobs": available_jobs
     }
 
+
+# ============= CHAT / MESSAGING =============
+
+class StartConversationRequest(BaseModel):
+    other_user_id: str
+
+
+class SendMessageRequest(BaseModel):
+    content: Optional[str] = ""
+    attachment_paths: Optional[List[str]] = []  # paths returned from /chat/attachments upload
+
+
+async def _get_or_create_conversation(user_a: dict, user_b: dict) -> dict:
+    """Return existing conversation between two users (client + professional), or create one."""
+    # Determine roles
+    if user_a["role"] == "client" and user_b["role"] == "professional":
+        client_id, professional_id = user_a["id"], user_b["id"]
+    elif user_a["role"] == "professional" and user_b["role"] == "client":
+        client_id, professional_id = user_b["id"], user_a["id"]
+    else:
+        raise HTTPException(status_code=400, detail="Conversations are only between a client and a professional")
+
+    convo = await db.conversations.find_one(
+        {"client_id": client_id, "professional_id": professional_id},
+        {"_id": 0},
+    )
+    if convo:
+        return convo
+
+    now = datetime.now(timezone.utc).isoformat()
+    convo = {
+        "id": str(uuid.uuid4()),
+        "client_id": client_id,
+        "professional_id": professional_id,
+        "last_message_at": now,
+        "last_message_preview": "",
+        "last_sender_id": None,
+        "unread_client": 0,
+        "unread_professional": 0,
+        "created_at": now,
+        "updated_at": now,
+    }
+    await db.conversations.insert_one(convo)
+    return convo
+
+
+@api_router.post("/conversations")
+async def start_conversation(req: StartConversationRequest, user = Depends(get_current_user)):
+    if user["role"] not in ["client", "professional"]:
+        raise HTTPException(status_code=403, detail="Only clients and professionals can start chats")
+    if req.other_user_id == user["id"]:
+        raise HTTPException(status_code=400, detail="You cannot start a chat with yourself")
+
+    other = await db.users.find_one({"id": req.other_user_id}, {"_id": 0, "password_hash": 0})
+    if not other:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    convo = await _get_or_create_conversation(user, other)
+    return convo
+
+
+@api_router.get("/conversations")
+async def list_conversations(user = Depends(get_current_user)):
+    if user["role"] == "admin":
+        raise HTTPException(status_code=400, detail="Admins use /admin/conversations")
+
+    field = "client_id" if user["role"] == "client" else "professional_id"
+    convos = await db.conversations.find({field: user["id"]}, {"_id": 0}).sort("last_message_at", -1).to_list(200)
+
+    # Enrich with the other participant's public info
+    enriched = []
+    for c in convos:
+        other_id = c["professional_id"] if user["role"] == "client" else c["client_id"]
+        other = await db.users.find_one({"id": other_id}, {"_id": 0, "password_hash": 0, "phone": 0})
+        c["other_user"] = other
+        c["unread"] = c.get("unread_client" if user["role"] == "client" else "unread_professional", 0)
+        enriched.append(c)
+    return enriched
+
+
+@api_router.get("/conversations/{conv_id}")
+async def get_conversation(conv_id: str, user = Depends(get_current_user)):
+    convo = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not convo:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if user["role"] != "admin" and user["id"] not in (convo["client_id"], convo["professional_id"]):
+        raise HTTPException(status_code=403, detail="Not a participant in this conversation")
+
+    other_id = convo["professional_id"] if user["id"] == convo["client_id"] else convo["client_id"]
+    other = await db.users.find_one({"id": other_id}, {"_id": 0, "password_hash": 0, "phone": 0})
+    convo["other_user"] = other
+    return convo
+
+
+@api_router.get("/conversations/{conv_id}/messages")
+async def list_messages(conv_id: str, user = Depends(get_current_user), limit: int = 100):
+    convo = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not convo:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if user["role"] != "admin" and user["id"] not in (convo["client_id"], convo["professional_id"]):
+        raise HTTPException(status_code=403, detail="Not a participant in this conversation")
+
+    msgs = await db.messages.find({"conversation_id": conv_id}, {"_id": 0}).sort("created_at", 1).to_list(limit)
+
+    # Mark as read for this user (except admin viewing)
+    if user["role"] != "admin":
+        unread_field = "unread_client" if user["id"] == convo["client_id"] else "unread_professional"
+        await db.conversations.update_one({"id": conv_id}, {"$set": {unread_field: 0}})
+
+    return msgs
+
+
+@api_router.post("/conversations/{conv_id}/messages")
+async def send_message(conv_id: str, req: SendMessageRequest, user = Depends(get_current_user)):
+    convo = await db.conversations.find_one({"id": conv_id}, {"_id": 0})
+    if not convo:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    if user["id"] not in (convo["client_id"], convo["professional_id"]):
+        raise HTTPException(status_code=403, detail="Not a participant in this conversation")
+
+    content = (req.content or "").strip()
+    attachment_paths = req.attachment_paths or []
+    if not content and not attachment_paths:
+        raise HTTPException(status_code=400, detail="Message cannot be empty")
+    if len(content) > 4000:
+        raise HTTPException(status_code=400, detail="Message too long (max 4000 chars)")
+    if len(attachment_paths) > 6:
+        raise HTTPException(status_code=400, detail="Max 6 attachments per message")
+
+    # Validate that the attachment paths belong to this user (uploaded by them under their chat folder)
+    valid_attachments = []
+    for path in attachment_paths:
+        attachment_doc = await db.chat_attachments.find_one({"path": path, "uploader_id": user["id"]}, {"_id": 0})
+        if not attachment_doc:
+            raise HTTPException(status_code=400, detail=f"Invalid attachment: {path}")
+        # Bind attachment to conversation for serve-time auth
+        await db.chat_attachments.update_one(
+            {"path": path},
+            {"$set": {"conversation_id": conv_id}},
+        )
+        valid_attachments.append({
+            "path": path,
+            "filename": attachment_doc.get("filename"),
+            "content_type": attachment_doc.get("content_type"),
+            "size": attachment_doc.get("size"),
+        })
+
+    now = datetime.now(timezone.utc).isoformat()
+    msg = {
+        "id": str(uuid.uuid4()),
+        "conversation_id": conv_id,
+        "sender_id": user["id"],
+        "sender_name": user.get("name"),
+        "sender_role": user["role"],
+        "content": content,
+        "attachments": valid_attachments,
+        "created_at": now,
+    }
+    await db.messages.insert_one(msg)
+    msg.pop("_id", None)
+
+    # Update conversation summary + unread counter for the OTHER side
+    if user["id"] == convo["client_id"]:
+        inc_field = "unread_professional"
+    else:
+        inc_field = "unread_client"
+
+    preview = content if content else f"[{len(valid_attachments)} attachment{'s' if len(valid_attachments)>1 else ''}]"
+    await db.conversations.update_one(
+        {"id": conv_id},
+        {
+            "$set": {
+                "last_message_at": now,
+                "last_message_preview": preview[:120],
+                "last_sender_id": user["id"],
+                "updated_at": now,
+            },
+            "$inc": {inc_field: 1},
+        },
+    )
+
+    # Best-effort in-app notification for recipient
+    recipient_id = convo["professional_id"] if user["id"] == convo["client_id"] else convo["client_id"]
+    try:
+        await db.notifications.insert_one({
+            "id": str(uuid.uuid4()),
+            "user_id": recipient_id,
+            "type": "new_message",
+            "title": f"New message from {user.get('name', 'someone')}",
+            "body": preview[:160],
+            "data": {"conversation_id": conv_id},
+            "read": False,
+            "created_at": now,
+        })
+    except Exception:
+        pass
+
+    return msg
+
+
+# ============= CHAT ATTACHMENTS (upload + serve) =============
+
+@api_router.post("/chat/attachments")
+async def upload_chat_attachment(file: UploadFile = File(...), user = Depends(get_current_user)):
+    if user["role"] not in ["client", "professional"]:
+        raise HTTPException(status_code=403, detail="Only clients and professionals can upload chat attachments")
+
+    data = await file.read()
+    try:
+        ext = storage_service.validate_upload(file.filename or "", len(data))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    content_type = file.content_type or storage_service.get_content_type(file.filename or f"file.{ext}")
+    path = storage_service.build_chat_path(user["id"], file.filename or f"file.{ext}")
+    try:
+        storage_service.put_object(path, data, content_type)
+    except Exception as e:
+        logger.exception("Chat attachment upload failed")
+        raise HTTPException(status_code=502, detail=f"Failed to upload file: {e}")
+
+    record = {
+        "id": str(uuid.uuid4()),
+        "path": path,
+        "filename": file.filename,
+        "content_type": content_type,
+        "size": len(data),
+        "uploader_id": user["id"],
+        "conversation_id": None,  # bound when message is sent
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.chat_attachments.insert_one(record)
+    record.pop("_id", None)
+    return {
+        "path": path,
+        "filename": record["filename"],
+        "content_type": content_type,
+        "size": record["size"],
+        "url": f"/api/files/chat/{path}",
+    }
+
+
+@api_router.get("/files/chat/{path:path}")
+async def get_chat_attachment(path: str, user = Depends(get_current_user)):
+    record = await db.chat_attachments.find_one({"path": path}, {"_id": 0})
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    # Auth: uploader, conversation participant, or admin can view
+    can_view = (
+        user["role"] == "admin"
+        or record["uploader_id"] == user["id"]
+    )
+    if not can_view and record.get("conversation_id"):
+        convo = await db.conversations.find_one({"id": record["conversation_id"]}, {"_id": 0})
+        if convo and user["id"] in (convo["client_id"], convo["professional_id"]):
+            can_view = True
+    if not can_view:
+        raise HTTPException(status_code=403, detail="You don't have access to this file")
+
+    try:
+        content, content_type = storage_service.get_object(path)
+    except Exception as e:
+        logger.exception("Chat attachment download failed")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch file: {e}")
+    return Response(content=content, media_type=content_type)
+
+
+# ============= ADMIN CHAT MODERATION =============
+
+@api_router.get("/admin/conversations")
+async def admin_list_conversations(user = Depends(get_current_user), limit: int = 200):
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    convos = await db.conversations.find({}, {"_id": 0}).sort("last_message_at", -1).to_list(limit)
+    for c in convos:
+        client_user = await db.users.find_one({"id": c["client_id"]}, {"_id": 0, "password_hash": 0})
+        pro_user = await db.users.find_one({"id": c["professional_id"]}, {"_id": 0, "password_hash": 0})
+        c["client"] = client_user
+        c["professional"] = pro_user
+        c["message_count"] = await db.messages.count_documents({"conversation_id": c["id"]})
+    return convos
+
+
+# ============= PASSWORD RESET =============
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str = Field(..., min_length=6, max_length=128)
+
+
+def _hash_reset_token(raw_token: str) -> str:
+    return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
+
+@api_router.post("/auth/forgot-password")
+async def forgot_password(req: ForgotPasswordRequest):
+    """Always returns 200 to prevent email enumeration."""
+    generic_response = {
+        "message": "If an account exists for that email, a password reset link has been sent.",
+    }
+
+    target = await db.users.find_one({"email": req.email.lower()}, {"_id": 0})
+    if not target:
+        return generic_response
+
+    # Generate token, hash it for storage, send raw token via email
+    raw_token = secrets.token_urlsafe(32)
+    token_hash = _hash_reset_token(raw_token)
+    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat()
+
+    await db.users.update_one(
+        {"id": target["id"]},
+        {"$set": {
+            "reset_token_hash": token_hash,
+            "reset_token_expires": expires_at,
+        }},
+    )
+
+    frontend_base = os.environ.get("FRONTEND_BASE_URL", "").rstrip("/")
+    reset_link = f"{frontend_base}/reset-password?token={raw_token}"
+
+    if not os.environ.get("RESEND_API_KEY"):
+        # Email service not yet configured — surface the link in logs only (never to the API response)
+        logger.warning(
+            "RESEND_API_KEY is not set; password reset link generated but email cannot be sent. "
+            "Reset link (DEV ONLY): %s", reset_link,
+        )
+        return generic_response
+
+    try:
+        html = email_service.password_reset_html(target.get("name", ""), reset_link)
+        await email_service.send_email(
+            to=target["email"],
+            subject="Reset your Kazi Links password",
+            html=html,
+        )
+    except Exception as e:
+        logger.exception("Failed to send password reset email: %s", e)
+        # Still return generic success — don't leak email-send failures to caller
+
+    return generic_response
+
+
+@api_router.post("/auth/reset-password")
+async def reset_password(req: ResetPasswordRequest):
+    token_hash = _hash_reset_token(req.token)
+    target = await db.users.find_one({"reset_token_hash": token_hash}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+
+    expires_str = target.get("reset_token_expires")
+    if not expires_str:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+    try:
+        expires_at = datetime.fromisoformat(expires_str)
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset link")
+
+    if datetime.now(timezone.utc) > expires_at:
+        # Clean up expired token
+        await db.users.update_one(
+            {"id": target["id"]},
+            {"$unset": {"reset_token_hash": "", "reset_token_expires": ""}},
+        )
+        raise HTTPException(status_code=400, detail="Reset link has expired. Please request a new one.")
+
+    # Hash new password and invalidate token
+    new_hash = bcrypt.hashpw(req.new_password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+    await db.users.update_one(
+        {"id": target["id"]},
+        {
+            "$set": {"password_hash": new_hash},
+            "$unset": {"reset_token_hash": "", "reset_token_expires": ""},
+        },
+    )
+
+    return {"message": "Password has been reset successfully. You can now log in with your new password."}
+
+
 # Include the router in the main app
 app.include_router(api_router)
 
@@ -2738,6 +3129,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+async def init_services():
+    try:
+        storage_service.init_storage()
+    except Exception as e:
+        logger.warning("Object storage init failed at startup (will retry on first use): %s", e)
+
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
