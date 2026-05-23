@@ -27,8 +27,15 @@ export default function WalletPage() {
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [depositData, setDepositData] = useState({ amount: "", phone_number: "" });
-  const [withdrawData, setWithdrawData] = useState({ amount: "", phone_number: "" });
+  const [depositData, setDepositData] = useState({ amount: "" });
+  const [withdrawData, setWithdrawData] = useState({ amount: "" });
+
+  // Display-only registered phone (the only number that can ever transact)
+  const registeredPhone = user?.phone || "";
+  const hasValidPhone = /^(\+?254|0)\d{9}$/.test(registeredPhone.replace(/\s+/g, ""));
+  const displayPhone = registeredPhone
+    ? registeredPhone.replace(/^\+?254/, "+254 ").replace(/^0/, "+254 ")
+    : "";
 
   useEffect(() => {
     fetchWalletData();
@@ -56,8 +63,8 @@ export default function WalletPage() {
       toast.error("Please enter a valid amount");
       return;
     }
-    if (!depositData.phone_number || depositData.phone_number.trim().length < 9) {
-      toast.error("Please enter your M-Pesa phone number");
+    if (!hasValidPhone) {
+      toast.error("Please add a valid M-Pesa phone number to your profile first");
       return;
     }
     
@@ -65,7 +72,6 @@ export default function WalletPage() {
     try {
       const response = await axios.post(`${API}/wallet/deposit`, {
         amount: parseFloat(depositData.amount),
-        phone_number: depositData.phone_number || user?.phone || ""
       });
       
       const { checkout_request_id, customer_message } = response.data;
@@ -86,7 +92,7 @@ export default function WalletPage() {
             toast.dismiss(pollToast);
             toast.success(`Deposit confirmed! Receipt: ${mpesa_receipt || "—"}`);
             setBalance(new_balance);
-            setDepositData({ amount: "", phone_number: "" });
+            setDepositData({ amount: "" });
             fetchWalletData();
             if (refreshUser) refreshUser();
           } else if (status === "failed") {
@@ -124,18 +130,21 @@ export default function WalletPage() {
       toast.error("Insufficient balance");
       return;
     }
+    if (!hasValidPhone) {
+      toast.error("Please add a valid M-Pesa phone number to your profile first");
+      return;
+    }
     
     setProcessing(true);
     try {
       const response = await axios.post(`${API}/wallet/withdraw`, {
         amount: parseFloat(withdrawData.amount),
-        phone_number: withdrawData.phone_number || user?.phone || "254712345678"
       });
       
       toast.success(`Withdrawn KSh ${parseFloat(withdrawData.amount).toLocaleString()} to M-Pesa`);
       setBalance(response.data.new_balance);
       setWithdrawOpen(false);
-      setWithdrawData({ amount: "", phone_number: "" });
+      setWithdrawData({ amount: "" });
       fetchWalletData();
       if (refreshUser) refreshUser();
     } catch (error) {
@@ -206,18 +215,25 @@ export default function WalletPage() {
                     </div>
                     
                     <div className="space-y-2">
-                      <Label>M-Pesa Phone Number</Label>
+                      <Label>M-Pesa Phone Number (registered)</Label>
                       <div className="relative">
                         <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                         <Input
                           type="tel"
-                          placeholder="254712345678"
-                          value={depositData.phone_number}
-                          onChange={(e) => setDepositData({...depositData, phone_number: e.target.value})}
-                          className="h-12 pl-10"
-                          data-testid="deposit-phone-input"
+                          value={displayPhone || "No phone on file"}
+                          readOnly
+                          disabled
+                          className="h-12 pl-10 bg-muted/50 cursor-not-allowed"
+                          data-testid="deposit-phone-display"
                         />
                       </div>
+                      <p className="text-xs text-muted-foreground">
+                        For your security, you can only deposit from the phone you registered with.
+                        {" "}
+                        {!hasValidPhone && (
+                          <span className="text-red-600 font-medium">Please add a valid M-Pesa number in your profile.</span>
+                        )}
+                      </p>
                     </div>
                     
                     <div className="p-3 bg-green-50 rounded-xl text-sm">
@@ -230,7 +246,7 @@ export default function WalletPage() {
                     <Button 
                       type="submit" 
                       className="w-full h-12 rounded-xl"
-                      disabled={processing}
+                      disabled={processing || !hasValidPhone}
                       data-testid="confirm-deposit-btn"
                     >
                       {processing ? "Processing..." : "Confirm Deposit"}
@@ -272,18 +288,25 @@ export default function WalletPage() {
                     </div>
                     
                     <div className="space-y-2">
-                      <Label>M-Pesa Phone Number</Label>
+                      <Label>M-Pesa Phone Number (registered)</Label>
                       <div className="relative">
                         <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                         <Input
                           type="tel"
-                          placeholder="254712345678"
-                          value={withdrawData.phone_number}
-                          onChange={(e) => setWithdrawData({...withdrawData, phone_number: e.target.value})}
-                          className="h-12 pl-10"
-                          data-testid="withdraw-phone-input"
+                          value={displayPhone || "No phone on file"}
+                          readOnly
+                          disabled
+                          className="h-12 pl-10 bg-muted/50 cursor-not-allowed"
+                          data-testid="withdraw-phone-display"
                         />
                       </div>
+                      <p className="text-xs text-muted-foreground">
+                        For your security, you can only withdraw to the phone you registered with.
+                        {" "}
+                        {!hasValidPhone && (
+                          <span className="text-red-600 font-medium">Please add a valid M-Pesa number in your profile.</span>
+                        )}
+                      </p>
                     </div>
                     
                     <div className="p-3 bg-yellow-50 rounded-xl text-sm">
@@ -296,7 +319,7 @@ export default function WalletPage() {
                     <Button 
                       type="submit" 
                       className="w-full h-12 rounded-xl"
-                      disabled={processing}
+                      disabled={processing || !hasValidPhone}
                       data-testid="confirm-withdraw-btn"
                     >
                       {processing ? "Processing..." : "Confirm Withdrawal"}

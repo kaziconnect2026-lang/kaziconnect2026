@@ -277,11 +277,12 @@ class WalletTransaction(BaseModel):
 
 class DepositRequest(BaseModel):
     amount: float
-    phone_number: str
+    phone_number: Optional[str] = None  # Ignored — server uses the user's registered phone
+
 
 class WithdrawalRequest(BaseModel):
     amount: float
-    phone_number: str
+    phone_number: Optional[str] = None  # Ignored — server uses the user's registered phone
 
 # Push Notification Models
 class PushSubscription(BaseModel):
@@ -834,15 +835,29 @@ async def get_wallet_transactions(user = Depends(get_current_user)):
 
 @api_router.post("/wallet/deposit")
 async def deposit_to_wallet(deposit: DepositRequest, user = Depends(get_current_user)):
-    """Deposit money to wallet via M-Pesa STK Push (Lipa Na M-Pesa Online)."""
+    """Deposit money to wallet via M-Pesa STK Push (Lipa Na M-Pesa Online).
+    
+    Phone number is always taken from the user's registered profile — clients/pros
+    cannot deposit from any other number.
+    """
     if deposit.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
     if deposit.amount > 100000:
         raise HTTPException(status_code=400, detail="Maximum deposit is KSh 100,000")
 
-    phone = mpesa_service.normalize_phone(deposit.phone_number)
+    registered_phone = (user.get("phone") or "").strip()
+    if not registered_phone:
+        raise HTTPException(
+            status_code=400,
+            detail="No registered phone number on file. Please update your profile before depositing.",
+        )
+
+    phone = mpesa_service.normalize_phone(registered_phone)
     if not phone.startswith("254") or len(phone) != 12:
-        raise HTTPException(status_code=400, detail="Invalid Kenyan phone number. Use format 2547XXXXXXXX or 07XXXXXXXX")
+        raise HTTPException(
+            status_code=400,
+            detail="Your registered phone number is invalid. Please update it in your profile (format 2547XXXXXXXX or 07XXXXXXXX).",
+        )
 
     # Generate transaction reference
     txn_id = await generate_transaction_id()
@@ -1024,14 +1039,32 @@ async def mpesa_callback(secret: str, request: Request):
 
 @api_router.post("/wallet/withdraw")
 async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get_current_user)):
-    """Withdraw money from wallet (M-Pesa - MOCKED)"""
+    """Withdraw money from wallet (M-Pesa - MOCKED).
+    
+    Phone number is always taken from the user's registered profile — clients/pros
+    cannot withdraw to any other number.
+    """
     if withdrawal.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
     
     current_balance = user.get("wallet_balance", 0.0)
     if withdrawal.amount > current_balance:
         raise HTTPException(status_code=400, detail="Insufficient wallet balance")
-    
+
+    registered_phone = (user.get("phone") or "").strip()
+    if not registered_phone:
+        raise HTTPException(
+            status_code=400,
+            detail="No registered phone number on file. Please update your profile before withdrawing.",
+        )
+
+    phone = mpesa_service.normalize_phone(registered_phone)
+    if not phone.startswith("254") or len(phone) != 12:
+        raise HTTPException(
+            status_code=400,
+            detail="Your registered phone number is invalid. Please update it in your profile (format 2547XXXXXXXX or 07XXXXXXXX).",
+        )
+
     # Generate transaction ID
     txn_id = await generate_transaction_id()
     
@@ -1046,7 +1079,7 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
         "amount": withdrawal.amount,
         "status": "completed",  # MOCKED - instant success
         "reference": f"MPESA-WD-{txn_id}",
-        "phone_number": withdrawal.phone_number,
+        "phone_number": phone,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
@@ -1057,10 +1090,10 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
         entry_type=LedgerEntryType.WITHDRAWAL,
         user_id=user["id"],
         amount=withdrawal.amount,
-        description=f"Wallet withdrawal to M-Pesa {withdrawal.phone_number}",
+        description=f"Wallet withdrawal to M-Pesa {phone}",
         reference_id=txn_id,
         reference_type="wallet_withdrawal",
-        metadata={"phone_number": withdrawal.phone_number, "mpesa_ref": transaction_doc["reference"]}
+        metadata={"phone_number": phone, "mpesa_ref": transaction_doc["reference"]}
     )
     
     # Update wallet balance
