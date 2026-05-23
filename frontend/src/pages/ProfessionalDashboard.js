@@ -10,8 +10,9 @@ import { toast } from "sonner";
 import { 
   Home, Calendar, DollarSign, Star, TrendingUp, Clock,
   User, LogOut, Menu, X, Settings, Briefcase, ChevronRight,
-  AlertCircle, Send, Eye, BarChart3, Wallet, Bell, MessageCircle
+  AlertCircle, Send, Eye, BarChart3, Wallet, Bell, MessageCircle, QrCode
 } from "lucide-react";
+import ShareProfileQRDialog from "../components/ShareProfileQRDialog";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -24,6 +25,7 @@ export default function ProfessionalDashboard() {
   const [availability, setAvailability] = useState(true);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [hasProfile, setHasProfile] = useState(true);
+  const [qrOpen, setQrOpen] = useState(false);
 
   useEffect(() => {
     const fetchDashboard = async () => {
@@ -291,14 +293,25 @@ export default function ProfessionalDashboard() {
                 </h1>
                 <p className="text-muted-foreground">Manage your bookings and track your earnings.</p>
               </div>
-              <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border">
-                <div className={`w-3 h-3 rounded-full ${availability ? 'bg-green-500' : 'bg-gray-400'}`} />
-                <span className="font-medium">{availability ? 'Available' : 'Offline'}</span>
-                <Switch 
-                  checked={availability}
-                  onCheckedChange={handleAvailabilityToggle}
-                  data-testid="availability-toggle"
-                />
+              <div className="flex items-center gap-3 flex-wrap">
+                <Button
+                  variant="outline"
+                  onClick={() => setQrOpen(true)}
+                  className="h-12 rounded-xl gap-2 border-primary/30 hover:bg-primary/5"
+                  data-testid="share-qr-btn"
+                >
+                  <QrCode className="w-4 h-4 text-primary" />
+                  Share QR
+                </Button>
+                <div className="flex items-center gap-3 p-4 bg-card rounded-xl border border-border">
+                  <div className={`w-3 h-3 rounded-full ${availability ? 'bg-green-500' : 'bg-gray-400'}`} />
+                  <span className="font-medium">{availability ? 'Available' : 'Offline'}</span>
+                  <Switch 
+                    checked={availability}
+                    onCheckedChange={handleAvailabilityToggle}
+                    data-testid="availability-toggle"
+                  />
+                </div>
               </div>
             </div>
 
@@ -628,6 +641,17 @@ export default function ProfessionalDashboard() {
           </Link>
         </div>
       </nav>
+
+      {/* Share QR Dialog */}
+      <ShareProfileQRDialog
+        open={qrOpen}
+        onOpenChange={setQrOpen}
+        userId={user?.id}
+        name={user?.name}
+        profession={dashboardData?.profile?.profession}
+        rating={dashboardData?.profile?.rating}
+        totalJobs={dashboardData?.profile?.total_jobs}
+      />
     </div>
   );
 }

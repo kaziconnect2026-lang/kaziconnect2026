@@ -15,8 +15,9 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { 
   ArrowLeft, Star, MapPin, Clock, DollarSign, Briefcase,
-  Phone, Mail, Calendar as CalendarIcon, CheckCircle2, Shield, MessageCircle
+  Phone, Mail, Calendar as CalendarIcon, CheckCircle2, Shield, MessageCircle, QrCode
 } from "lucide-react";
+import ShareProfileQRDialog from "../components/ShareProfileQRDialog";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -36,6 +37,7 @@ export default function ProfessionalProfile() {
   });
   const [submitting, setSubmitting] = useState(false);
   const [startingChat, setStartingChat] = useState(false);
+  const [qrOpen, setQrOpen] = useState(false);
 
   const handleStartChat = async () => {
     if (startingChat) return;
@@ -111,7 +113,15 @@ export default function ProfessionalProfile() {
           <button onClick={() => navigate(-1)} className="p-2 hover:bg-muted rounded-lg">
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <h1 className="font-heading font-semibold">Professional Profile</h1>
+          <h1 className="font-heading font-semibold flex-1">Professional Profile</h1>
+          <button
+            onClick={() => setQrOpen(true)}
+            className="p-2 hover:bg-primary/10 rounded-lg text-primary"
+            aria-label="Share profile QR code"
+            data-testid="header-share-qr-btn"
+          >
+            <QrCode className="w-5 h-5" />
+          </button>
         </div>
       </header>
 
@@ -389,6 +399,16 @@ export default function ProfessionalProfile() {
           </div>
         </div>
       </main>
+
+      <ShareProfileQRDialog
+        open={qrOpen}
+        onOpenChange={setQrOpen}
+        userId={id}
+        name={professional.user?.name}
+        profession={professional.profession}
+        rating={professional.rating}
+        totalJobs={professional.total_jobs}
+      />
     </div>
   );
 }
