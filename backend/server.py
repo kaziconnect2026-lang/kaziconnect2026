@@ -1530,6 +1530,36 @@ async def get_jobs(
     
     return jobs
 
+def _profession_to_category_clauses(profession: str) -> list:
+    """Build a Mongo $or list of category regexes that match how categories are
+    typically stored (e.g. 'car_mechanic', 'mc_host', 'tattoo_artist') from a
+    profession display name (e.g. 'Car Mechanic', 'MC / Host', 'Tattoo Artist').
+    Also matches the last meaningful word alone (e.g. 'Mechanic') so that a
+    'Car Mechanic' pro still sees jobs categorised plainly as 'mechanic'.
+    """
+    if not profession:
+        return []
+    # Tokenize: keep word-chars only
+    tokens = [t.lower() for t in re.findall(r"\w+", profession) if t]
+    if not tokens:
+        return []
+    GENERIC_TAILS = {"technician", "specialist", "expert", "installer", "service",
+                     "agency", "manager", "assistant", "engineer"}
+    clauses = []
+    # Full slug with flexible separator: 'car mechanic' → /car[\s_-]?mechanic/i
+    if len(tokens) > 1:
+        sep_pattern = r"[\s_\-/]*"
+        full_re = sep_pattern.join(re.escape(t) for t in tokens)
+        clauses.append({"category": {"$regex": full_re, "$options": "i"}})
+        # Last meaningful word fallback
+        tail = tokens[-1]
+        if tail not in GENERIC_TAILS:
+            clauses.append({"category": {"$regex": r"\b" + re.escape(tail) + r"\b", "$options": "i"}})
+    else:
+        clauses.append({"category": {"$regex": r"\b" + re.escape(tokens[0]) + r"\b", "$options": "i"}})
+    return clauses
+
+
 @api_router.get("/jobs/available")
 async def get_available_jobs(
     category: Optional[str] = None, 
@@ -1547,11 +1577,15 @@ async def get_available_jobs(
     
     # Filter jobs by professional's category/profession
     if profile and profile.get("profession"):
-        # Map profession to matching job categories
-        profession = profile["profession"].lower()
-        query["category"] = {"$regex": profession, "$options": "i"}
+        # Map profession to matching job categories. Multi-word professions like
+        # "Car Mechanic", "MC / Host", "Tattoo Artist" need to match categories
+        # stored as "car_mechanic", "mc_host", "tattoo_artist", etc.
+        profession = profile["profession"].strip()
+        prof_or = _profession_to_category_clauses(profession)
+        if prof_or:
+            query["$or"] = prof_or
     elif category:
-        query["category"] = {"$regex": category, "$options": "i"}
+        query["category"] = {"$regex": re.escape(category), "$options": "i"}
     
     # Filter by location if user has location set
     user_location = user.get("location")

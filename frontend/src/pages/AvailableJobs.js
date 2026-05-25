@@ -259,7 +259,7 @@ export default function AvailableJobs() {
 
       {/* Bid Dialog */}
       <Dialog open={bidOpen} onOpenChange={setBidOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto p-5">
           <DialogHeader>
             <DialogTitle className="font-heading">Submit Your Bid</DialogTitle>
           </DialogHeader>
