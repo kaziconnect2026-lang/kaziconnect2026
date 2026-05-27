@@ -25,6 +25,7 @@ import ForgotPasswordPage from "./pages/ForgotPasswordPage";
 import ResetPasswordPage from "./pages/ResetPasswordPage";
 import AdminConversationsPage from "./pages/AdminConversationsPage";
 import AdminKycPage from "./pages/AdminKycPage";
+import AdminTransactionsPage from "./pages/AdminTransactionsPage";
 import "./App.css";
 
 // Protected Route Component
@@ -202,6 +203,11 @@ function App() {
             <Route path="/admin/kyc/:userId" element={
               <ProtectedRoute allowedRoles={["admin"]}>
                 <AdminKycPage />
+              </ProtectedRoute>
+            } />
+            <Route path="/admin/transactions" element={
+              <ProtectedRoute allowedRoles={["admin"]}>
+                <AdminTransactionsPage />
               </ProtectedRoute>
             } />
             

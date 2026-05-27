@@ -2859,6 +2859,129 @@ async def get_all_transactions(user = Depends(get_current_user)):
     
     return payments
 
+
+@api_router.get("/admin/mpesa-transactions")
+async def admin_mpesa_transactions(
+    type: Optional[str] = None,           # 'deposit' | 'withdrawal'
+    status: Optional[str] = None,         # 'completed' | 'pending' | 'failed'
+    q: Optional[str] = None,              # search by user name/email/phone/mpesa ref/transaction_id
+    date_from: Optional[str] = None,      # ISO date inclusive
+    date_to: Optional[str] = None,        # ISO date inclusive
+    limit: int = 200,
+    skip: int = 0,
+    user = Depends(get_current_user),
+):
+    """Admin: full M-Pesa deposit + withdrawal ledger across the platform with
+    user enrichment, summary totals, and filtering. Powers the
+    `Platform Finances` admin page.
+    """
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    query: dict = {}
+    if type in ("deposit", "withdrawal"):
+        query["type"] = type
+    if status in ("completed", "pending", "failed"):
+        query["status"] = status
+    if date_from or date_to:
+        rng: dict = {}
+        if date_from:
+            rng["$gte"] = date_from
+        if date_to:
+            # Make 'to' inclusive of the whole day if only YYYY-MM-DD is sent
+            rng["$lte"] = date_to if "T" in date_to else f"{date_to}T23:59:59.999Z"
+        query["created_at"] = rng
+
+    # If text-search, try to also match user_id by resolving emails/names first
+    user_id_matches = []
+    if q:
+        q_clean = q.strip()
+        if q_clean:
+            users_found = await db.users.find(
+                {
+                    "$or": [
+                        {"name": {"$regex": q_clean, "$options": "i"}},
+                        {"email": {"$regex": q_clean, "$options": "i"}},
+                        {"display_id": {"$regex": q_clean, "$options": "i"}},
+                    ]
+                },
+                {"_id": 0, "id": 1},
+            ).to_list(200)
+            user_id_matches = [u["id"] for u in users_found]
+
+            or_clauses = [
+                {"reference": {"$regex": q_clean, "$options": "i"}},
+                {"mpesa_receipt": {"$regex": q_clean, "$options": "i"}},
+                {"transaction_id": {"$regex": q_clean, "$options": "i"}},
+                {"phone_number": {"$regex": q_clean.replace("+", "").replace(" ", ""), "$options": "i"}},
+                {"checkout_request_id": {"$regex": q_clean, "$options": "i"}},
+            ]
+            if user_id_matches:
+                or_clauses.append({"user_id": {"$in": user_id_matches}})
+            query["$or"] = or_clauses
+
+    total = await db.wallet_transactions.count_documents(query)
+    cursor = db.wallet_transactions.find(query, {"_id": 0}).sort("created_at", -1).skip(skip).limit(limit)
+    txns = await cursor.to_list(limit)
+
+    # Enrich with user data
+    user_cache: dict = {}
+    for t in txns:
+        uid = t.get("user_id")
+        if uid and uid not in user_cache:
+            u = await db.users.find_one(
+                {"id": uid},
+                {"_id": 0, "name": 1, "email": 1, "display_id": 1, "role": 1, "phone": 1},
+            )
+            user_cache[uid] = u
+        u = user_cache.get(uid) or {}
+        t["user_name"] = u.get("name", "Unknown")
+        t["user_email"] = u.get("email")
+        t["user_display_id"] = u.get("display_id")
+        t["user_role"] = u.get("role")
+        t["user_phone"] = u.get("phone")
+
+    # Summary totals (computed over the FULL filtered set, not just the page)
+    pipeline = [
+        {"$match": query},
+        {
+            "$group": {
+                "_id": {"type": "$type", "status": "$status"},
+                "count": {"$sum": 1},
+                "total": {"$sum": "$amount"},
+            }
+        },
+    ]
+    agg = await db.wallet_transactions.aggregate(pipeline).to_list(50)
+    summary = {
+        "deposits_completed": {"count": 0, "total": 0.0},
+        "deposits_pending": {"count": 0, "total": 0.0},
+        "deposits_failed": {"count": 0, "total": 0.0},
+        "withdrawals_completed": {"count": 0, "total": 0.0},
+        "withdrawals_pending": {"count": 0, "total": 0.0},
+        "withdrawals_failed": {"count": 0, "total": 0.0},
+    }
+    for row in agg:
+        t = (row["_id"] or {}).get("type")
+        s = (row["_id"] or {}).get("status")
+        key = f"{t}s_{s}" if t and s else None
+        if key in summary:
+            summary[key] = {"count": row["count"], "total": round(row["total"], 2)}
+    net_flow = round(
+        summary["deposits_completed"]["total"] - summary["withdrawals_completed"]["total"],
+        2,
+    )
+    summary["net_flow"] = net_flow
+    summary["total_transactions"] = total
+
+    return {
+        "transactions": txns,
+        "summary": summary,
+        "pagination": {"total": total, "limit": limit, "skip": skip},
+        "filters": {"type": type, "status": status, "q": q, "date_from": date_from, "date_to": date_to},
+    }
+
+
 @api_router.get("/admin/ledger")
 async def get_ledger(
     entry_type: Optional[str] = None,
