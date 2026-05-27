@@ -13,6 +13,7 @@ import {
   AlertCircle, Send, Eye, BarChart3, Wallet, Bell, MessageCircle, QrCode
 } from "lucide-react";
 import ShareProfileQRDialog from "../components/ShareProfileQRDialog";
+import IdVerificationCard from "../components/IdVerificationCard";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -434,6 +435,9 @@ export default function ProfessionalDashboard() {
                 </CardContent>
               </Card>
             </div>
+
+            {/* ID Verification */}
+            <IdVerificationCard />
 
             {/* Weekly Earnings Chart */}
             <Card className="border-border mb-8" data-testid="weekly-earnings">

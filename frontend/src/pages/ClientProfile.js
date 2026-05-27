@@ -5,6 +5,7 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle } from "../components/ui/card";
 import { useAuth } from "../context/AuthContext";
+import IdVerificationCard from "../components/IdVerificationCard";
 import axios from "axios";
 import { toast } from "sonner";
 import { 
@@ -359,6 +360,11 @@ export default function ClientProfile() {
               </CardContent>
             </Card>
           </Link>
+        </div>
+
+        {/* ID Verification */}
+        <div className="mt-6">
+          <IdVerificationCard />
         </div>
       </main>
     </div>

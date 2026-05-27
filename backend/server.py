@@ -502,11 +502,25 @@ async def _has_active_booking(client_id: str, professional_id: str) -> bool:
     return booking is not None
 
 
+_KYC_PRIVATE_FIELDS = {
+    "id_front_path", "id_back_path",
+    "id_verification_notes", "id_verified_by",
+    "id_verified_at", "id_uploaded_at",
+    "id_verification_status",
+}
+
+
 def _strip_phone(user_doc: dict) -> dict:
-    """Return a copy of the user dict without the phone field."""
+    """Return a copy of the user dict without the phone field and private KYC metadata.
+
+    `id_verified` (boolean trust signal) is kept; everything else KYC-related is removed.
+    """
     if not user_doc:
         return user_doc
-    safe = {k: v for k, v in user_doc.items() if k != "phone"}
+    safe = {
+        k: v for k, v in user_doc.items()
+        if k != "phone" and k not in _KYC_PRIVATE_FIELDS
+    }
     return safe
 
 async def require_role(required_roles: List[UserRole]):
@@ -3370,6 +3384,168 @@ async def get_chat_attachment(path: str, user = Depends(get_current_user)):
         logger.exception("Chat attachment download failed")
         raise HTTPException(status_code=502, detail=f"Failed to fetch file: {e}")
     return Response(content=content, media_type=content_type)
+
+
+# ============= KYC / ID VERIFICATION =============
+
+@api_router.post("/kyc/upload-id")
+async def upload_id_photo(
+    side: str = Form(...),
+    file: UploadFile = File(...),
+    user = Depends(get_current_user),
+):
+    """Upload front/back of national ID. Stores in object storage and updates user record.
+    
+    Both clients and professionals can upload ID for verification. Admins later flip
+    `id_verified` after reviewing both sides in the Admin → Users panel.
+    """
+    if side not in ("front", "back"):
+        raise HTTPException(status_code=400, detail="side must be 'front' or 'back'")
+
+    data = await file.read()
+    try:
+        ext = storage_service.validate_kyc_image(file.filename or "", len(data))
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    content_type = file.content_type or storage_service.get_content_type(file.filename or f"id.{ext}")
+    path = storage_service.build_kyc_path(user["id"], side, file.filename or f"id.{ext}")
+    try:
+        storage_service.put_object(path, data, content_type)
+    except Exception as e:
+        logger.exception("KYC upload failed")
+        raise HTTPException(status_code=502, detail=f"Failed to upload ID photo: {e}")
+
+    record = {
+        "user_id": user["id"],
+        "side": side,
+        "path": path,
+        "filename": file.filename,
+        "content_type": content_type,
+        "size": len(data),
+        "uploaded_at": datetime.now(timezone.utc).isoformat(),
+    }
+    # Track every upload (audit trail)
+    await db.kyc_uploads.insert_one(record)
+    record.pop("_id", None)
+
+    # Mark the user's current KYC document for this side; reset verification when re-uploaded
+    field = "id_front_path" if side == "front" else "id_back_path"
+    await db.users.update_one(
+        {"id": user["id"]},
+        {
+            "$set": {
+                field: path,
+                "id_verified": False,
+                "id_verification_status": "pending",
+                "id_uploaded_at": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+    )
+
+    return {
+        "side": side,
+        "path": path,
+        "url": f"/api/files/kyc/{path}",
+        "status": "pending",
+    }
+
+
+@api_router.get("/kyc/status")
+async def get_my_kyc_status(user = Depends(get_current_user)):
+    """Return the current user's KYC progress and verification state."""
+    me = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0}) or {}
+    return {
+        "id_verified": bool(me.get("id_verified")),
+        "id_verification_status": me.get("id_verification_status", "not_started"),
+        "id_front_uploaded": bool(me.get("id_front_path")),
+        "id_back_uploaded": bool(me.get("id_back_path")),
+        "id_front_url": f"/api/files/kyc/{me['id_front_path']}" if me.get("id_front_path") else None,
+        "id_back_url": f"/api/files/kyc/{me['id_back_path']}" if me.get("id_back_path") else None,
+        "id_uploaded_at": me.get("id_uploaded_at"),
+        "id_verified_at": me.get("id_verified_at"),
+        "id_verification_notes": me.get("id_verification_notes"),
+    }
+
+
+@api_router.get("/files/kyc/{path:path}")
+async def get_kyc_file(path: str, user = Depends(get_current_user)):
+    """Serve KYC photos. Only the uploader or an admin can view."""
+    record = await db.kyc_uploads.find_one({"path": path}, {"_id": 0})
+    if not record:
+        raise HTTPException(status_code=404, detail="File not found")
+    if user["role"] != "admin" and record["user_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="You don't have access to this file")
+    try:
+        content, content_type = storage_service.get_object(path)
+    except Exception as e:
+        logger.exception("KYC file download failed")
+        raise HTTPException(status_code=502, detail=f"Failed to fetch file: {e}")
+    return Response(content=content, media_type=content_type)
+
+
+class KYCVerifyRequest(BaseModel):
+    approved: bool
+    notes: Optional[str] = None
+
+
+@api_router.get("/admin/kyc/pending")
+async def admin_list_pending_kyc(user = Depends(get_current_user), limit: int = 200):
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    users = await db.users.find(
+        {"id_verification_status": "pending"},
+        {"_id": 0, "password_hash": 0},
+    ).sort("id_uploaded_at", -1).to_list(limit)
+    return users
+
+
+@api_router.get("/admin/kyc/{user_id}")
+async def admin_get_user_kyc(user_id: str, user = Depends(get_current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    return {
+        "user": target,
+        "id_front_url": f"/api/files/kyc/{target['id_front_path']}" if target.get("id_front_path") else None,
+        "id_back_url": f"/api/files/kyc/{target['id_back_path']}" if target.get("id_back_path") else None,
+    }
+
+
+@api_router.post("/admin/kyc/{user_id}/verify")
+async def admin_verify_kyc(user_id: str, req: KYCVerifyRequest, user = Depends(get_current_user)):
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    target = await db.users.find_one({"id": user_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if not target.get("id_front_path") or not target.get("id_back_path"):
+        raise HTTPException(status_code=400, detail="User has not uploaded both front and back ID photos")
+
+    new_status = "verified" if req.approved else "rejected"
+    update = {
+        "id_verified": req.approved,
+        "id_verification_status": new_status,
+        "id_verification_notes": req.notes,
+        "id_verified_at": datetime.now(timezone.utc).isoformat(),
+        "id_verified_by": user["id"],
+    }
+    await db.users.update_one({"id": user_id}, {"$set": update})
+
+    # Best-effort notify the user
+    try:
+        await send_push_notification(
+            user_id=user_id,
+            title="ID Verification " + ("Approved" if req.approved else "Rejected"),
+            body=req.notes or ("Your ID has been verified." if req.approved else "Please re-upload clearer ID photos."),
+            data={"type": "kyc_result", "approved": req.approved},
+        )
+    except Exception:
+        pass
+
+    return {"user_id": user_id, "id_verified": req.approved, "status": new_status}
 
 
 # ============= ADMIN CHAT MODERATION =============

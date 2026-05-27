@@ -137,10 +137,20 @@ export default function ProfessionalProfile() {
                 </span>
               </div>
               <div className="flex-1">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-1 flex-wrap">
                   <h2 className="font-heading text-2xl font-bold">{professional.user?.name}</h2>
                   {professional.availability && (
                     <Badge className="bg-green-100 text-green-800">Available</Badge>
+                  )}
+                  {professional.user?.id_verified && (
+                    <Badge
+                      className="bg-blue-100 text-blue-800 border-0 gap-1"
+                      data-testid="id-verified-badge"
+                      title="Identity verified by Kazi Links"
+                    >
+                      <Shield className="w-3 h-3" />
+                      ID Verified
+                    </Badge>
                   )}
                 </div>
                 <p className="text-muted-foreground">{professional.profession}</p>

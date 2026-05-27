@@ -250,6 +250,15 @@ export default function AdminDashboard() {
               <span>Chat Moderation</span>
               <ChevronRight className="w-4 h-4 ml-auto" />
             </Link>
+            <Link 
+              to="/admin/kyc"
+              className="w-full flex items-center gap-3 p-3 rounded-xl transition-colors hover:bg-muted"
+              data-testid="nav-kyc"
+            >
+              <Shield className="w-5 h-5" />
+              <span>KYC Review</span>
+              <ChevronRight className="w-4 h-4 ml-auto" />
+            </Link>
           </nav>
 
           <div className="pt-6 border-t border-border">

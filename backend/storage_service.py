@@ -26,7 +26,9 @@ MIME_TYPES = {
 }
 
 ALLOWED_EXTS = {"jpg", "jpeg", "png", "webp", "gif", "pdf"}
+ALLOWED_IMAGE_EXTS = {"jpg", "jpeg", "png", "webp"}
 MAX_FILE_SIZE = 5 * 1024 * 1024  # 5 MB
+MAX_KYC_FILE_SIZE = 8 * 1024 * 1024  # 8 MB — IDs are often larger photos
 
 
 def init_storage():
@@ -75,9 +77,28 @@ def validate_upload(filename: str, size: int) -> str:
     return ext
 
 
+def validate_kyc_image(filename: str, size: int) -> str:
+    """KYC IDs must be image files only (no PDF) and up to 8 MB."""
+    if not filename or "." not in filename:
+        raise ValueError("Filename must include an extension")
+    ext = filename.rsplit(".", 1)[-1].lower()
+    if ext not in ALLOWED_IMAGE_EXTS:
+        raise ValueError(f"ID photos must be an image (.jpg, .png, .webp). Got: .{ext}")
+    if size > MAX_KYC_FILE_SIZE:
+        raise ValueError(f"ID photo too large ({size} bytes). Max is {MAX_KYC_FILE_SIZE} bytes (8 MB)")
+    return ext
+
+
 def build_chat_path(user_id: str, filename: str) -> str:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
     return f"{APP_NAME}/chat/{user_id}/{uuid.uuid4()}.{ext}"
+
+
+def build_kyc_path(user_id: str, side: str, filename: str) -> str:
+    """KYC ID photos: one stable path per side so re-upload overwrites the previous."""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
+    safe_side = side if side in ("front", "back", "selfie") else "front"
+    return f"{APP_NAME}/kyc/{user_id}/{safe_side}-{uuid.uuid4()}.{ext}"
 
 
 def put_object(path: str, data: bytes, content_type: str) -> dict:

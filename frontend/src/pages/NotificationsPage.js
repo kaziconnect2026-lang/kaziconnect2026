@@ -45,33 +45,52 @@ export default function NotificationsPage() {
   };
 
   const handleEnablePush = async () => {
-    if (!('Notification' in window)) {
+    if (!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)) {
       toast.error("Push notifications are not supported in this browser");
       return;
     }
 
     try {
       const permission = await Notification.requestPermission();
-      if (permission === 'granted') {
-        // Register service worker and get push subscription
-        if ('serviceWorker' in navigator) {
-          const registration = await navigator.serviceWorker.ready;
-          
-          // For demo, we'll just store a simple subscription
-          await axios.post(`${API}/notifications/subscribe`, {
-            endpoint: `demo-endpoint-${user?.id}`,
-            keys: {
-              p256dh: "demo-key",
-              auth: "demo-auth"
-            }
-          });
-          
-          setPushEnabled(true);
-          toast.success("Push notifications enabled!");
-        }
-      } else {
+      if (permission !== "granted") {
         toast.error("Permission denied for notifications");
+        return;
       }
+
+      const registration = await navigator.serviceWorker.ready;
+      let subscription = await registration.pushManager.getSubscription();
+
+      // VAPID public key (optional). If not configured server-side, fall back to a
+      // local subscription stub so the user still gets in-app toast notifications.
+      const vapidKey = process.env.REACT_APP_VAPID_PUBLIC_KEY;
+      if (!subscription && vapidKey) {
+        try {
+          subscription = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(vapidKey),
+          });
+        } catch (subErr) {
+          console.warn("PushManager.subscribe failed — falling back to stub:", subErr);
+        }
+      }
+
+      const payload = subscription
+        ? subscription.toJSON()
+        : {
+            endpoint: `local-${user?.id}-${Date.now()}`,
+            keys: { p256dh: "local", auth: "local" },
+          };
+
+      await axios.post(`${API}/notifications/subscribe`, {
+        endpoint: payload.endpoint,
+        keys: payload.keys || { p256dh: "", auth: "" },
+      });
+      try {
+        localStorage.setItem("kazi_push_endpoint", payload.endpoint);
+      } catch { /* ignore */ }
+
+      setPushEnabled(true);
+      toast.success("Push notifications enabled!");
     } catch (error) {
       console.error("Failed to enable push:", error);
       toast.error("Failed to enable notifications");
@@ -80,13 +99,40 @@ export default function NotificationsPage() {
 
   const handleDisablePush = async () => {
     try {
-      await axios.delete(`${API}/notifications/unsubscribe?endpoint=demo-endpoint-${user?.id}`);
+      let endpoint = null;
+      try {
+        endpoint = localStorage.getItem("kazi_push_endpoint");
+      } catch { /* ignore */ }
+      if (!endpoint && "serviceWorker" in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.ready;
+          const sub = await reg.pushManager.getSubscription();
+          if (sub) {
+            endpoint = sub.endpoint;
+            await sub.unsubscribe().catch(() => null);
+          }
+        } catch { /* ignore */ }
+      }
+      if (endpoint) {
+        await axios.delete(`${API}/notifications/unsubscribe?endpoint=${encodeURIComponent(endpoint)}`);
+      }
+      try { localStorage.removeItem("kazi_push_endpoint"); } catch { /* ignore */ }
       setPushEnabled(false);
       toast.success("Push notifications disabled");
     } catch (error) {
       console.error("Failed to disable push:", error);
     }
   };
+
+  // Convert VAPID base64 URL-safe key to Uint8Array required by PushManager.subscribe
+  function urlBase64ToUint8Array(base64String) {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawData = atob(base64);
+    const outputArray = new Uint8Array(rawData.length);
+    for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
+    return outputArray;
+  }
 
   const handleMarkRead = async (notificationId) => {
     try {
