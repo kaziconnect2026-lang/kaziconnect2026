@@ -315,7 +315,49 @@ export default function WalletPage() {
                         M-Pesa withdrawal is MOCKED for demo
                       </p>
                     </div>
-                    
+
+                    {/* Fee breakdown */}
+                    {withdrawData.amount && parseFloat(withdrawData.amount) > 0 && (() => {
+                      const amt = parseFloat(withdrawData.amount) || 0;
+                      const feePct = +(amt * 0.03).toFixed(2);
+                      const fixed = 20;
+                      const total = +(amt + feePct + fixed).toFixed(2);
+                      const insufficient = total > balance;
+                      return (
+                        <div
+                          className="rounded-xl border border-border p-4 space-y-1.5 text-sm"
+                          data-testid="withdrawal-fee-breakdown"
+                        >
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">You receive (M-Pesa)</span>
+                            <span className="font-medium">KSh {amt.toLocaleString()}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Withdrawal fee (3%)</span>
+                            <span>KSh {feePct.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Fixed fee</span>
+                            <span>KSh {fixed}</span>
+                          </div>
+                          <div className="flex justify-between pt-2 border-t border-border">
+                            <span className="font-medium">Wallet will be charged</span>
+                            <span
+                              className={`font-bold ${insufficient ? "text-red-600" : "text-foreground"}`}
+                              data-testid="withdrawal-gross"
+                            >
+                              KSh {total.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                            </span>
+                          </div>
+                          {insufficient && (
+                            <p className="text-xs text-red-600 pt-1">
+                              Your wallet balance (KSh {balance.toLocaleString()}) is not enough.
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })()}
+
                     <Button 
                       type="submit" 
                       className="w-full h-12 rounded-xl"

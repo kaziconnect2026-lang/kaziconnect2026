@@ -405,7 +405,7 @@ class Payment(BaseModel):
 
 class PaymentCreate(BaseModel):
     booking_id: str
-    phone_number: str
+    phone_number: Optional[str] = None  # Ignored — server uses the user's registered phone
 
 class Review(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -705,6 +705,146 @@ async def root():
     return {"message": "Welcome to Kazi Links API"}
 
 # ============= AUTH ENDPOINTS =============
+# ============= REGISTRATION PAYWALL =============
+# Clients must pay a small M-Pesa Account Verification Fee, professionals a registration fee.
+# The user record is created ONLY after M-Pesa callback confirms payment.
+
+class RegistrationPaymentRequest(UserBase):
+    password: str
+
+
+@api_router.post("/auth/register-with-payment")
+async def register_with_payment(payload: RegistrationPaymentRequest):
+    """Start registration: validates, sends an STK push to the user's phone, and
+    stores a pending registration. The user record is only created when the
+    M-Pesa callback confirms success.
+    """
+    # Email uniqueness check
+    existing = await db.users.find_one({"email": payload.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Email already registered")
+    pending = await db.registration_payments.find_one({
+        "email": payload.email,
+        "status": "pending",
+    })
+    if pending:
+        raise HTTPException(
+            status_code=400,
+            detail="A pending registration already exists for this email. Please complete the M-Pesa prompt or wait a few minutes.",
+        )
+
+    # Validate phone
+    if not payload.phone:
+        raise HTTPException(status_code=400, detail="Phone number is required")
+    phone = mpesa_service.normalize_phone(payload.phone)
+    if not phone.startswith("254") or len(phone) != 12:
+        raise HTTPException(
+            status_code=400,
+            detail="Enter a valid Kenyan phone number (e.g. 2547XXXXXXXX or 07XXXXXXXX).",
+        )
+
+    # Determine fee
+    if payload.role == UserRole.PROFESSIONAL:
+        amount = PROFESSIONAL_REGISTRATION_FEE
+        fee_type = "professional_registration"
+        fee_label = "Kazi Links Pro Registration"
+    elif payload.role == UserRole.CLIENT:
+        amount = CLIENT_REGISTRATION_FEE
+        fee_type = "client_verification"
+        fee_label = "Kazi Links Account Verification"
+    else:
+        raise HTTPException(status_code=400, detail="Admin registration is not allowed via this endpoint")
+
+    reg_id = str(uuid.uuid4())
+    reg_ref = f"REG-{reg_id[:8].upper()}"
+
+    # Initiate STK Push first — only persist if Daraja accepts the request
+    try:
+        stk_result = await mpesa_service.stk_push(
+            phone_number=phone,
+            amount=int(amount),
+            account_reference=reg_ref,
+            transaction_desc=fee_label[:13],  # M-Pesa caps to ~13 chars
+        )
+    except Exception as e:
+        logger.exception("Registration STK push failed")
+        raise HTTPException(status_code=502, detail=f"Could not start M-Pesa payment: {e}")
+
+    record = {
+        "id": reg_id,
+        "reference": reg_ref,
+        "fee_type": fee_type,
+        "amount": float(amount),
+        "status": "pending",
+        "name": payload.name,
+        "email": payload.email,
+        "phone": phone,
+        "role": payload.role.value,
+        "location": payload.location,
+        "latitude": payload.latitude,
+        "longitude": payload.longitude,
+        "password_hash": hash_password(payload.password),  # held until verification
+        "checkout_request_id": stk_result.get("CheckoutRequestID"),
+        "merchant_request_id": stk_result.get("MerchantRequestID"),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    await db.registration_payments.insert_one(record)
+
+    return {
+        "message": f"M-Pesa prompt sent to {phone}. Enter your PIN to complete registration.",
+        "registration_id": reg_id,
+        "checkout_request_id": record["checkout_request_id"],
+        "reference": reg_ref,
+        "amount": float(amount),
+        "fee_type": fee_type,
+        "phone": phone,
+    }
+
+
+@api_router.get("/auth/registration-status")
+async def registration_status(checkout_request_id: str):
+    """Poll endpoint. Returns the current status of a pending registration.
+    When status='completed', also returns an access_token + user so the
+    frontend can sign the user straight in.
+    """
+    record = await db.registration_payments.find_one(
+        {"checkout_request_id": checkout_request_id},
+        {"_id": 0, "password_hash": 0},
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="Unknown registration")
+    response = {
+        "status": record.get("status", "pending"),
+        "amount": record.get("amount"),
+        "fee_type": record.get("fee_type"),
+        "reference": record.get("reference"),
+        "failure_reason": record.get("failure_reason"),
+        "mpesa_receipt": record.get("mpesa_receipt"),
+    }
+    if record.get("status") == "completed" and record.get("user_id"):
+        user = await db.users.find_one({"id": record["user_id"]}, {"_id": 0, "password_hash": 0})
+        if user:
+            response["access_token"] = create_token(user["id"], user["role"])
+            created_at = user.get("created_at")
+            if isinstance(created_at, str):
+                created_at = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            response["user"] = UserResponse(
+                id=user["id"],
+                display_id=user.get("display_id"),
+                email=user["email"],
+                name=user["name"],
+                phone=user["phone"],
+                role=UserRole(user["role"]),
+                location=user.get("location"),
+                latitude=user.get("latitude"),
+                longitude=user.get("longitude"),
+                created_at=created_at,
+                wallet_balance=user.get("wallet_balance", 0.0),
+                profile_photo=user.get("profile_photo"),
+            ).model_dump(mode="json")
+    return response
+
+
 @api_router.post("/auth/register", response_model=TokenResponse)
 async def register(user_data: UserCreate):
     # Check if email exists
@@ -993,7 +1133,159 @@ async def mpesa_callback(secret: str, request: Request):
     if not checkout_request_id:
         return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
-    # Idempotency: only process if currently pending
+    # First, check if this is a REGISTRATION PAYMENT (paywall) STK response
+    reg = await db.registration_payments.find_one({"checkout_request_id": checkout_request_id})
+    if reg:
+        if reg.get("status") != "pending":
+            return {"ResultCode": 0, "ResultDesc": "Accepted"}
+        if parsed.get("result_code") == 0:
+            # Success — create the user record now
+            user_id = str(uuid.uuid4())
+            if reg["role"] == UserRole.CLIENT.value:
+                display_id = await generate_client_id()
+            elif reg["role"] == UserRole.PROFESSIONAL.value:
+                display_id = await generate_professional_id()
+            else:
+                display_id = f"USR-{user_id[:5].upper()}"
+            user_doc = {
+                "id": user_id,
+                "display_id": display_id,
+                "email": reg["email"],
+                "name": reg["name"],
+                "phone": reg["phone"],
+                "role": reg["role"],
+                "location": reg.get("location"),
+                "latitude": reg.get("latitude"),
+                "longitude": reg.get("longitude"),
+                "password_hash": reg["password_hash"],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+                "is_active": True,
+                "wallet_balance": 0.0,
+                "profile_photo": None,
+                "registration_fee_paid": reg["amount"],
+                "registration_paid_at": datetime.now(timezone.utc).isoformat(),
+                "registration_mpesa_receipt": parsed.get("mpesa_receipt"),
+            }
+            try:
+                await db.users.insert_one(user_doc)
+            except Exception as e:
+                logger.exception("Failed to create user from registration payment")
+                await db.registration_payments.update_one(
+                    {"id": reg["id"]},
+                    {"$set": {"status": "failed", "failure_reason": f"User creation failed: {e}"}},
+                )
+                return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+            await db.registration_payments.update_one(
+                {"id": reg["id"]},
+                {"$set": {
+                    "status": "completed",
+                    "user_id": user_id,
+                    "user_display_id": display_id,
+                    "mpesa_receipt": parsed.get("mpesa_receipt"),
+                    "mpesa_transaction_id": parsed.get("mpesa_receipt"),
+                    "mpesa_transaction_date": parsed.get("transaction_date"),
+                    "completed_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+            # Ledger entry — platform revenue
+            try:
+                await create_ledger_entry(
+                    entry_type=LedgerEntryType.PLATFORM_FEE,
+                    user_id=user_id,
+                    amount=float(reg["amount"]),
+                    description=(
+                        "Account verification fee" if reg["fee_type"] == "client_verification"
+                        else "Professional registration fee"
+                    ),
+                    reference_id=reg["reference"],
+                    reference_type=reg["fee_type"],
+                    metadata={
+                        "phone": reg["phone"],
+                        "mpesa_receipt": parsed.get("mpesa_receipt"),
+                        "checkout_request_id": checkout_request_id,
+                        "role": reg["role"],
+                    },
+                )
+            except Exception:
+                logger.exception("Ledger entry for registration fee failed (non-fatal)")
+            logger.info("Registration completed via M-Pesa: %s (%s) → user=%s", reg["email"], reg["fee_type"], user_id)
+        else:
+            await db.registration_payments.update_one(
+                {"id": reg["id"]},
+                {"$set": {
+                    "status": "failed",
+                    "failure_code": str(parsed.get("result_code")),
+                    "failure_reason": parsed.get("result_desc"),
+                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+            logger.info("Registration M-Pesa payment failed: %s — %s", checkout_request_id, parsed.get("result_desc"))
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    # Next, check if this is a BOOKING-ESCROW top-up rather than a plain wallet deposit
+    payment_doc = await db.payments.find_one({"checkout_request_id": checkout_request_id})
+    if payment_doc:
+        # Idempotency
+        if payment_doc.get("status") != "awaiting_topup":
+            return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+        if parsed.get("result_code") == 0:
+            # Success: payment now fully held in escrow
+            await db.payments.update_one(
+                {"id": payment_doc["id"]},
+                {"$set": {
+                    "status": PaymentStatus.ESCROW.value,
+                    "mpesa_receipt": parsed.get("mpesa_receipt"),
+                    "mpesa_transaction_id": parsed.get("mpesa_receipt") or payment_doc.get("mpesa_transaction_id"),
+                    "mpesa_transaction_date": parsed.get("transaction_date"),
+                    "topup_completed_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+            topup_amount = float(payment_doc.get("topup_required") or 0)
+            await create_ledger_entry(
+                entry_type=LedgerEntryType.ESCROW_IN,
+                user_id=payment_doc["client_id"],
+                amount=topup_amount,
+                description=f"Booking payment (M-Pesa top-up) {payment_doc.get('booking_display_id', '')}",
+                reference_id=payment_doc.get("display_id"),
+                reference_type="payment_topup",
+                related_user_id=payment_doc.get("professional_id"),
+                metadata={
+                    "booking_id": payment_doc.get("booking_id"),
+                    "phone": payment_doc.get("topup_phone"),
+                    "mpesa_receipt": parsed.get("mpesa_receipt"),
+                    "checkout_request_id": checkout_request_id,
+                    "topup_amount": topup_amount,
+                },
+            )
+            await db.bookings.update_one(
+                {"id": payment_doc["booking_id"]},
+                {"$set": {"status": BookingStatus.CONFIRMED.value}},
+            )
+            logger.info("Booking escrow funded: %s KSh %s", checkout_request_id, topup_amount)
+        else:
+            # Failure: refund wallet portion + mark payment failed
+            wallet_used = float(payment_doc.get("wallet_used") or 0)
+            if wallet_used > 0:
+                await db.users.update_one(
+                    {"id": payment_doc["client_id"]},
+                    {"$inc": {"wallet_balance": wallet_used}},
+                )
+            await db.payments.update_one(
+                {"id": payment_doc["id"]},
+                {"$set": {
+                    "status": "failed",
+                    "failure_code": str(parsed.get("result_code")),
+                    "failure_reason": parsed.get("result_desc"),
+                    "failed_at": datetime.now(timezone.utc).isoformat(),
+                }},
+            )
+            logger.info("Booking escrow top-up failed: %s — %s; refunded wallet KSh %s",
+                        checkout_request_id, parsed.get("result_desc"), wallet_used)
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    # Otherwise this is a plain wallet deposit — original flow
     txn = await db.wallet_transactions.find_one({"checkout_request_id": checkout_request_id})
     if not txn:
         logger.warning("M-Pesa callback for unknown CheckoutRequestID: %s", checkout_request_id)
@@ -1051,6 +1343,22 @@ async def mpesa_callback(secret: str, request: Request):
 
     return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
+@api_router.get("/wallet/withdraw-quote")
+async def withdraw_quote(amount: float, user = Depends(get_current_user)):
+    """Return the fee breakdown for a proposed withdrawal so the UI can show it
+    before the user confirms.
+    """
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="Amount must be positive")
+    fb = _calc_withdrawal_total(amount)
+    wallet_balance = float(user.get("wallet_balance") or 0)
+    return {
+        **fb,
+        "wallet_balance": round(wallet_balance, 2),
+        "sufficient_funds": fb["gross"] <= wallet_balance,
+    }
+
+
 @api_router.post("/wallet/withdraw")
 async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get_current_user)):
     """Withdraw money from wallet (M-Pesa - MOCKED).
@@ -1060,10 +1368,19 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
     """
     if withdrawal.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
-    
-    current_balance = user.get("wallet_balance", 0.0)
-    if withdrawal.amount > current_balance:
-        raise HTTPException(status_code=400, detail="Insufficient wallet balance")
+
+    fee_breakdown = _calc_withdrawal_total(withdrawal.amount)
+    gross = fee_breakdown["gross"]
+
+    current_balance = float(user.get("wallet_balance", 0.0))
+    if gross > current_balance:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Insufficient wallet balance. You need KSh {gross:,.2f} (KSh {fee_breakdown['amount']:,.2f}"
+                f" + 3% + KSh {int(WITHDRAWAL_FIXED_FEE)} fees) but have KSh {current_balance:,.2f}."
+            ),
+        )
 
     registered_phone = (user.get("phone") or "").strip()
     if not registered_phone:
@@ -1081,8 +1398,8 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
 
     # Generate transaction ID
     txn_id = await generate_transaction_id()
-    
-    # Create wallet transaction record
+
+    # Create wallet transaction record (records the AMOUNT sent to M-Pesa; fee fields are separate)
     transaction_id = str(uuid.uuid4())
     transaction_doc = {
         "id": transaction_id,
@@ -1090,40 +1407,71 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
         "user_id": user["id"],
         "user_display_id": user.get("display_id"),
         "type": "withdrawal",
-        "amount": withdrawal.amount,
+        "amount": fee_breakdown["amount"],                        # Net to user via M-Pesa
+        "fee_percent": WITHDRAWAL_FEE_PERCENT,
+        "fee_amount": fee_breakdown["withdrawal_fee_amount"],     # 3% of amount
+        "fixed_fee": fee_breakdown["fixed_fee"],                  # KSh 20
+        "fee_total": fee_breakdown["fee_total"],
+        "gross_amount": gross,                                    # Total deducted from wallet
         "status": "completed",  # MOCKED - instant success
         "reference": f"MPESA-WD-{txn_id}",
         "phone_number": phone,
-        "created_at": datetime.now(timezone.utc).isoformat()
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    
+
     await db.wallet_transactions.insert_one(transaction_doc)
-    
-    # Create ledger entry
+
+    # Ledger entry for the net withdrawal (money leaving platform → user M-Pesa)
     await create_ledger_entry(
         entry_type=LedgerEntryType.WITHDRAWAL,
         user_id=user["id"],
-        amount=withdrawal.amount,
+        amount=fee_breakdown["amount"],
         description=f"Wallet withdrawal to M-Pesa {phone}",
         reference_id=txn_id,
         reference_type="wallet_withdrawal",
-        metadata={"phone_number": phone, "mpesa_ref": transaction_doc["reference"]}
+        metadata={
+            "phone_number": phone,
+            "mpesa_ref": transaction_doc["reference"],
+            "fee_amount": fee_breakdown["withdrawal_fee_amount"],
+            "fixed_fee": fee_breakdown["fixed_fee"],
+            "gross": gross,
+        },
     )
-    
-    # Update wallet balance
+
+    # Ledger entry for the fee (platform revenue)
+    await create_ledger_entry(
+        entry_type=LedgerEntryType.PLATFORM_FEE,
+        user_id=user["id"],
+        amount=fee_breakdown["fee_total"],
+        description=f"Withdrawal fee (3% + KSh {int(WITHDRAWAL_FIXED_FEE)})",
+        reference_id=txn_id,
+        reference_type="withdrawal_fee",
+        metadata={
+            "fee_percent": WITHDRAWAL_FEE_PERCENT,
+            "fee_amount": fee_breakdown["withdrawal_fee_amount"],
+            "fixed_fee": fee_breakdown["fixed_fee"],
+            "wallet_txn_id": txn_id,
+        },
+    )
+
+    # Deduct the GROSS amount (amount + fees) from the wallet
     await db.users.update_one(
         {"id": user["id"]},
-        {"$inc": {"wallet_balance": -withdrawal.amount}}
+        {"$inc": {"wallet_balance": -gross}},
     )
-    
+
     # Get new balance
     updated_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
-    
+
     return {
         "message": "Withdrawal successful (MOCKED) - Sent to M-Pesa",
         "transaction_id": txn_id,
-        "amount": withdrawal.amount,
-        "new_balance": updated_user.get("wallet_balance", 0.0)
+        "amount": fee_breakdown["amount"],
+        "fee_amount": fee_breakdown["withdrawal_fee_amount"],
+        "fixed_fee": fee_breakdown["fixed_fee"],
+        "fee_total": fee_breakdown["fee_total"],
+        "gross_charged": gross,
+        "new_balance": updated_user.get("wallet_balance", 0.0),
     }
 
 # ============= PUSH NOTIFICATION ENDPOINTS =============
@@ -2383,29 +2731,115 @@ async def update_booking_status(booking_id: str, status: BookingStatus, user = D
     await db.bookings.update_one({"id": booking_id}, {"$set": update_data})
     return {"message": f"Booking status updated to {status.value}"}
 
-# ============= PAYMENT ENDPOINTS (M-PESA MOCK) =============
-PLATFORM_FEE_PERCENTAGE = 20
+# ============= PAYMENT ENDPOINTS (M-PESA) =============
+PLATFORM_FEE_PERCENTAGE = 20             # Commission charged on completed job to professional payout
+BOOKING_FEE_PERCENT = 1.5                # Client-side booking platform fee (% of service price)
+BOOKING_FIXED_FEE = 20                   # Client-side booking fixed fee (KSh)
+WITHDRAWAL_FEE_PERCENT = 3               # Client-side withdrawal fee (% of withdrawal amount)
+WITHDRAWAL_FIXED_FEE = 20                # Client-side withdrawal fixed fee (KSh)
+CLIENT_REGISTRATION_FEE = 20             # M-Pesa account verification fee for clients
+PROFESSIONAL_REGISTRATION_FEE = 2000     # Registration fee for professionals
+
+
+def _calc_booking_total(service_amount: float) -> dict:
+    """Booking total = service + 1.5% of service + KSh 20."""
+    service_amount = round(float(service_amount or 0), 2)
+    percent_fee = round(service_amount * (BOOKING_FEE_PERCENT / 100), 2)
+    fixed_fee = float(BOOKING_FIXED_FEE)
+    total = round(service_amount + percent_fee + fixed_fee, 2)
+    return {
+        "service_amount": service_amount,
+        "platform_fee_percent": BOOKING_FEE_PERCENT,
+        "platform_fee_amount": percent_fee,
+        "fixed_fee": fixed_fee,
+        "total": total,
+    }
+
+
+def _calc_withdrawal_total(withdrawal_amount: float) -> dict:
+    """Withdrawal breakdown: gross deducted from wallet = amount + 3% + KSh 20; net sent to M-Pesa = amount.
+
+    Returns the gross (total wallet deduction) and the fee components.
+    """
+    amount = round(float(withdrawal_amount or 0), 2)
+    percent_fee = round(amount * (WITHDRAWAL_FEE_PERCENT / 100), 2)
+    fixed_fee = float(WITHDRAWAL_FIXED_FEE)
+    fee_total = round(percent_fee + fixed_fee, 2)
+    gross = round(amount + fee_total, 2)
+    return {
+        "amount": amount,
+        "withdrawal_fee_percent": WITHDRAWAL_FEE_PERCENT,
+        "withdrawal_fee_amount": percent_fee,
+        "fixed_fee": fixed_fee,
+        "fee_total": fee_total,
+        "gross": gross,
+    }
+
+
+@api_router.get("/payments/quote")
+async def quote_booking_payment(booking_id: str, user = Depends(get_current_user)):
+    """Return the full charge breakdown for a booking + whether the client's
+    wallet covers it or needs an M-Pesa top-up (and how much).
+    """
+    if user["role"] != "client":
+        raise HTTPException(status_code=403, detail="Only clients can quote a payment")
+
+    booking = await db.bookings.find_one({"id": booking_id})
+    if not booking:
+        raise HTTPException(status_code=404, detail="Booking not found")
+    if booking["client_id"] != user["id"]:
+        raise HTTPException(status_code=403, detail="Not authorized")
+
+    breakdown = _calc_booking_total(booking["agreed_price"])
+    wallet_balance = round(float(user.get("wallet_balance") or 0), 2)
+    total = breakdown["total"]
+    use_wallet = min(wallet_balance, total)
+    topup_required = round(max(total - use_wallet, 0), 2)
+    return {
+        **breakdown,
+        "wallet_balance": wallet_balance,
+        "wallet_used": round(use_wallet, 2),
+        "topup_required": topup_required,
+        "fully_covered_by_wallet": topup_required == 0,
+    }
+
 
 @api_router.post("/payments/initiate")
 async def initiate_payment(payment_data: PaymentCreate, user = Depends(get_current_user)):
     if user["role"] != "client":
         raise HTTPException(status_code=403, detail="Only clients can initiate payments")
-    
+
     booking = await db.bookings.find_one({"id": payment_data.booking_id})
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
-    
     if booking["client_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
-    
-    # Calculate fees
-    amount = booking["agreed_price"]
-    platform_fee = amount * (PLATFORM_FEE_PERCENTAGE / 100)
-    professional_amount = amount - platform_fee
-    
+
+    # Block double-pay
+    existing = await db.payments.find_one({
+        "booking_id": payment_data.booking_id,
+        "status": {"$in": [PaymentStatus.ESCROW.value, "awaiting_topup"]},
+    })
+    if existing:
+        raise HTTPException(status_code=400, detail="This booking is already paid or has a pending payment")
+
+    # Fee breakdown
+    service_amount = float(booking["agreed_price"])
+    breakdown = _calc_booking_total(service_amount)
+    total = breakdown["total"]
+
+    # Existing platform commission on payout (unchanged behaviour for the professional side)
+    professional_amount = round(service_amount - service_amount * (PLATFORM_FEE_PERCENTAGE / 100), 2)
+    pro_platform_fee = round(service_amount - professional_amount, 2)
+
+    wallet_balance = round(float(user.get("wallet_balance") or 0), 2)
+    wallet_used = round(min(wallet_balance, total), 2)
+    topup_required = round(max(total - wallet_used, 0), 2)
+
     payment_id = str(uuid.uuid4())
     payment_display_id = await generate_payment_id()
-    
+    now_iso = datetime.now(timezone.utc).isoformat()
+
     payment_doc = {
         "id": payment_id,
         "display_id": payment_display_id,
@@ -2415,42 +2849,123 @@ async def initiate_payment(payment_data: PaymentCreate, user = Depends(get_curre
         "client_display_id": user.get("display_id"),
         "professional_id": booking["professional_id"],
         "professional_display_id": booking.get("professional_display_id"),
-        "amount": amount,
-        "platform_fee": platform_fee,
+        # Money flow
+        "amount": service_amount,                              # service price
+        "booking_fee_percent": BOOKING_FEE_PERCENT,
+        "booking_fee_amount": breakdown["platform_fee_amount"],
+        "booking_fixed_fee": breakdown["fixed_fee"],
+        "client_charge_total": total,                          # what the client actually pays
+        "wallet_used": wallet_used,
+        "topup_required": topup_required,
+        # Payout side (unchanged)
+        "platform_fee": pro_platform_fee,                      # 20% professional commission
         "professional_amount": professional_amount,
-        "status": PaymentStatus.ESCROW.value,  # MOCK: Simulate successful escrow
-        "mpesa_transaction_id": f"MPESA{uuid.uuid4().hex[:10].upper()}",  # MOCK transaction ID
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "released_at": None
+        "status": PaymentStatus.ESCROW.value if topup_required == 0 else "awaiting_topup",
+        "created_at": now_iso,
+        "released_at": None,
     }
-    
+
+    # CASE A: fully covered by wallet → deduct immediately and move to escrow
+    if topup_required == 0:
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$inc": {"wallet_balance": -total}},
+        )
+        await db.payments.insert_one(payment_doc)
+        await create_ledger_entry(
+            entry_type=LedgerEntryType.ESCROW_IN,
+            user_id=user["id"],
+            amount=total,
+            description=f"Booking payment (wallet) {booking.get('display_id', payment_data.booking_id)} - {booking.get('service_description', 'Service')}",
+            reference_id=payment_display_id,
+            reference_type="payment",
+            related_user_id=booking["professional_id"],
+            metadata={
+                "booking_id": payment_data.booking_id,
+                "booking_display_id": booking.get("display_id"),
+                "professional_id": booking["professional_id"],
+                "service_amount": service_amount,
+                "booking_fee_amount": breakdown["platform_fee_amount"],
+                "booking_fixed_fee": breakdown["fixed_fee"],
+                "wallet_used": wallet_used,
+                "topup_required": 0,
+            },
+        )
+        await db.bookings.update_one(
+            {"id": payment_data.booking_id},
+            {"$set": {"status": BookingStatus.CONFIRMED.value}},
+        )
+        return {
+            "message": "Payment held in escrow",
+            "payment": {k: v for k, v in payment_doc.items() if k != "_id"},
+            "topup_required": 0,
+        }
+
+    # CASE B: not fully covered → trigger STK Push for the shortfall
+    # Validate registered phone first
+    registered_phone = (user.get("phone") or "").strip()
+    if not registered_phone:
+        raise HTTPException(
+            status_code=400,
+            detail="No registered phone number on file. Please update your profile before paying.",
+        )
+    phone = mpesa_service.normalize_phone(registered_phone)
+    if not phone.startswith("254") or len(phone) != 12:
+        raise HTTPException(
+            status_code=400,
+            detail="Your registered phone number is invalid. Please update it in your profile (format 2547XXXXXXXX or 07XXXXXXXX).",
+        )
+
+    # Reserve the wallet portion now (debit immediately so user can't double-spend)
+    if wallet_used > 0:
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$inc": {"wallet_balance": -wallet_used}},
+        )
+
+    try:
+        stk_result = await mpesa_service.stk_push(
+            phone_number=phone,
+            amount=int(round(topup_required)),
+            account_reference=payment_display_id,
+            transaction_desc=f"Kazi Links booking {booking.get('display_id', '')[:20]}",
+        )
+    except Exception as e:
+        # Rollback wallet reservation
+        if wallet_used > 0:
+            await db.users.update_one({"id": user["id"]}, {"$inc": {"wallet_balance": wallet_used}})
+        logger.exception("STK push failed")
+        raise HTTPException(status_code=502, detail=f"M-Pesa is currently unavailable. Please try again. ({e})")
+
+    payment_doc["checkout_request_id"] = stk_result.get("CheckoutRequestID")
+    payment_doc["merchant_request_id"] = stk_result.get("MerchantRequestID")
+    payment_doc["topup_phone"] = phone
     await db.payments.insert_one(payment_doc)
-    
-    # Create ledger entry for escrow
+
+    # Pending ledger entry — confirmed by mpesa callback
     await create_ledger_entry(
         entry_type=LedgerEntryType.ESCROW_IN,
         user_id=user["id"],
-        amount=amount,
-        description=f"Payment for booking {booking.get('display_id', payment_data.booking_id)} - {booking.get('service_description', 'Service')}",
+        amount=wallet_used,
+        description=f"Booking payment (wallet portion) {booking.get('display_id', payment_data.booking_id)}",
         reference_id=payment_display_id,
-        reference_type="payment",
+        reference_type="payment_wallet_portion",
         related_user_id=booking["professional_id"],
         metadata={
             "booking_id": payment_data.booking_id,
-            "booking_display_id": booking.get("display_id"),
-            "professional_id": booking["professional_id"],
-            "platform_fee": platform_fee,
-            "professional_amount": professional_amount
-        }
+            "wallet_used": wallet_used,
+            "topup_required": topup_required,
+            "phone": phone,
+            "checkout_request_id": payment_doc["checkout_request_id"],
+        },
     )
-    
-    # Update booking status
-    await db.bookings.update_one({"id": payment_data.booking_id}, {"$set": {"status": BookingStatus.CONFIRMED.value}})
-    
+
     return {
-        "message": "Payment processed and held in escrow (MOCK)",
+        "message": "Wallet portion held. Enter your M-Pesa PIN on the prompt to complete payment.",
         "payment": {k: v for k, v in payment_doc.items() if k != "_id"},
-        "note": "M-Pesa integration is MOCKED for demo purposes"
+        "topup_required": topup_required,
+        "checkout_request_id": payment_doc["checkout_request_id"],
+        "phone": phone,
     }
 
 @api_router.post("/payments/{payment_id}/release")
@@ -2858,6 +3373,100 @@ async def get_all_transactions(user = Depends(get_current_user)):
         payment["professional_display_id"] = prof.get("display_id") if prof else None
     
     return payments
+
+
+@api_router.get("/admin/registration-payments")
+async def admin_registration_payments(
+    role: Optional[str] = None,           # 'client' | 'professional'
+    status: Optional[str] = None,         # 'pending' | 'completed' | 'failed'
+    q: Optional[str] = None,
+    date_from: Optional[str] = None,
+    date_to: Optional[str] = None,
+    limit: int = 200,
+    skip: int = 0,
+    user = Depends(get_current_user),
+):
+    """Admin: list every registration paywall payment (client verification + pro registration)
+    with summary totals.
+    """
+    if user["role"] != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+
+    query: dict = {}
+    if role in ("client", "professional"):
+        query["role"] = role
+    if status in ("pending", "completed", "failed"):
+        query["status"] = status
+    if date_from or date_to:
+        rng: dict = {}
+        if date_from:
+            rng["$gte"] = date_from
+        if date_to:
+            rng["$lte"] = date_to if "T" in date_to else f"{date_to}T23:59:59.999Z"
+        query["created_at"] = rng
+    if q:
+        q_clean = q.strip()
+        if q_clean:
+            query["$or"] = [
+                {"name": {"$regex": q_clean, "$options": "i"}},
+                {"email": {"$regex": q_clean, "$options": "i"}},
+                {"phone": {"$regex": q_clean.replace("+", "").replace(" ", ""), "$options": "i"}},
+                {"reference": {"$regex": q_clean, "$options": "i"}},
+                {"mpesa_receipt": {"$regex": q_clean, "$options": "i"}},
+                {"checkout_request_id": {"$regex": q_clean, "$options": "i"}},
+                {"user_display_id": {"$regex": q_clean, "$options": "i"}},
+            ]
+
+    total = await db.registration_payments.count_documents(query)
+    cursor = (
+        db.registration_payments.find(query, {"_id": 0, "password_hash": 0})
+        .sort("created_at", -1)
+        .skip(skip)
+        .limit(limit)
+    )
+    rows = await cursor.to_list(limit)
+
+    # Aggregations (computed across the FULL filtered set)
+    pipeline = [
+        {"$match": query},
+        {
+            "$group": {
+                "_id": {"role": "$role", "status": "$status"},
+                "count": {"$sum": 1},
+                "total": {"$sum": "$amount"},
+            }
+        },
+    ]
+    agg = await db.registration_payments.aggregate(pipeline).to_list(50)
+    summary = {
+        "client_completed": {"count": 0, "total": 0.0},
+        "client_pending": {"count": 0, "total": 0.0},
+        "client_failed": {"count": 0, "total": 0.0},
+        "professional_completed": {"count": 0, "total": 0.0},
+        "professional_pending": {"count": 0, "total": 0.0},
+        "professional_failed": {"count": 0, "total": 0.0},
+    }
+    for row in agg:
+        r = (row["_id"] or {}).get("role")
+        s = (row["_id"] or {}).get("status")
+        key = f"{r}_{s}" if r and s else None
+        if key in summary:
+            summary[key] = {"count": row["count"], "total": round(row["total"], 2)}
+    summary["total_revenue"] = round(
+        summary["client_completed"]["total"] + summary["professional_completed"]["total"], 2
+    )
+    summary["total_transactions"] = total
+
+    return {
+        "registrations": rows,
+        "summary": summary,
+        "pagination": {"total": total, "limit": limit, "skip": skip},
+        "filters": {"role": role, "status": status, "q": q, "date_from": date_from, "date_to": date_to},
+        "fees": {
+            "client_verification": CLIENT_REGISTRATION_FEE,
+            "professional_registration": PROFESSIONAL_REGISTRATION_FEE,
+        },
+    }
 
 
 @api_router.get("/admin/mpesa-transactions")

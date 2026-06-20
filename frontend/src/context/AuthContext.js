@@ -84,6 +84,14 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const setSession = ({ token: newToken, user: newUser }) => {
+    if (!newToken || !newUser) return;
+    localStorage.setItem("kazi_token", newToken);
+    axios.defaults.headers.common["Authorization"] = `Bearer ${newToken}`;
+    setToken(newToken);
+    setUser(newUser);
+  };
+
   const logout = () => {
     localStorage.removeItem("kazi_token");
     setToken(null);
@@ -113,6 +121,7 @@ export const AuthProvider = ({ children }) => {
     register,
     logout,
     refreshUser,
+    setSession,
     isAuthenticated: !!user,
   };
 

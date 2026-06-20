@@ -14,7 +14,7 @@ import {
   Home, Users, Briefcase, DollarSign, Star, TrendingUp, 
   Calendar, LogOut, Menu, X, BarChart3, PieChart, Activity,
   ArrowUpRight, ArrowDownRight, Search, Filter, CheckCircle2,
-  Clock, XCircle, Wallet, Bell, Shield, ChevronRight, FileText, MessageCircle, Receipt
+  Clock, XCircle, Wallet, Bell, Shield, ChevronRight, FileText, MessageCircle, Receipt, ShieldCheck
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -175,7 +175,32 @@ export default function AdminDashboard() {
               <Activity className="w-5 h-5" />
               <span>Activity</span>
             </button>
-            <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-destructive/10 text-destructive">
+
+            <div className="pt-2 mt-2 border-t border-border space-y-1">
+              <p className="px-3 py-1 text-[10px] uppercase tracking-wider text-muted-foreground">Operations</p>
+              <Link to="/admin/ledger" onClick={() => setMobileMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-muted" data-testid="mobile-nav-ledger">
+                <FileText className="w-5 h-5" />
+                <span>Ledger</span>
+              </Link>
+              <Link to="/admin/transactions" onClick={() => setMobileMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-muted" data-testid="mobile-nav-transactions">
+                <Receipt className="w-5 h-5" />
+                <span>Platform Finances</span>
+              </Link>
+              <Link to="/admin/registration-payments" onClick={() => setMobileMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-muted" data-testid="mobile-nav-registration-payments">
+                <ShieldCheck className="w-5 h-5" />
+                <span>Registration Payments</span>
+              </Link>
+              <Link to="/admin/conversations" onClick={() => setMobileMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-muted" data-testid="mobile-nav-conversations">
+                <MessageCircle className="w-5 h-5" />
+                <span>Chat Moderation</span>
+              </Link>
+              <Link to="/admin/kyc" onClick={() => setMobileMenuOpen(false)} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-muted" data-testid="mobile-nav-kyc">
+                <Shield className="w-5 h-5" />
+                <span>KYC Review</span>
+              </Link>
+            </div>
+
+            <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-destructive/10 text-destructive mt-2">
               <LogOut className="w-5 h-5" />
               <span>Log out</span>
             </button>
@@ -248,6 +273,15 @@ export default function AdminDashboard() {
             >
               <Receipt className="w-5 h-5" />
               <span>Platform Finances</span>
+              <ChevronRight className="w-4 h-4 ml-auto" />
+            </Link>
+            <Link 
+              to="/admin/registration-payments"
+              className="w-full flex items-center gap-3 p-3 rounded-xl transition-colors hover:bg-muted"
+              data-testid="nav-registration-payments"
+            >
+              <ShieldCheck className="w-5 h-5" />
+              <span>Registration Payments</span>
               <ChevronRight className="w-4 h-4 ml-auto" />
             </Link>
             <Link 

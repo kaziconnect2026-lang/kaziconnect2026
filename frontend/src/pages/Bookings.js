@@ -16,7 +16,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { 
   ArrowLeft, Calendar as CalendarIcon, Clock, DollarSign, User, CheckCircle2, 
-  XCircle, AlertCircle, CreditCard, Star, RefreshCw, Unlock
+  XCircle, AlertCircle, CreditCard, Star, RefreshCw, Unlock, Loader2
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -49,6 +49,25 @@ export default function Bookings() {
   });
   const [submittingRebook, setSubmittingRebook] = useState(false);
 
+  // Payment quote state — fetched when the user opens the Pay & Confirm dialog
+  const [paymentQuote, setPaymentQuote] = useState(null);
+  const [loadingQuote, setLoadingQuote] = useState(false);
+  const [quoteBookingId, setQuoteBookingId] = useState(null);
+
+  const fetchPaymentQuote = async (booking) => {
+    setQuoteBookingId(booking.id);
+    setLoadingQuote(true);
+    setPaymentQuote(null);
+    try {
+      const res = await axios.get(`${API}/payments/quote?booking_id=${booking.id}`);
+      setPaymentQuote(res.data);
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Could not load payment quote");
+    } finally {
+      setLoadingQuote(false);
+    }
+  };
+
   useEffect(() => {
     fetchBookings();
   }, []);
@@ -68,14 +87,21 @@ export default function Bookings() {
   const handlePayment = async (booking) => {
     setProcessingPayment(true);
     try {
-      await axios.post(`${API}/payments/initiate`, {
+      const res = await axios.post(`${API}/payments/initiate`, {
         booking_id: booking.id,
-        phone_number: user.phone || "254712345678"
       });
-      
-      toast.success("Payment held in escrow!");
+      if (res.data?.topup_required && res.data.topup_required > 0) {
+        toast.success(
+          `Check your phone for the M-Pesa prompt for KSh ${Number(res.data.topup_required).toLocaleString()}`,
+          { duration: 6000 }
+        );
+      } else {
+        toast.success("Payment held in escrow!");
+      }
       fetchBookings();
       setSelectedBooking(null);
+      setPaymentQuote(null);
+      setQuoteBookingId(null);
     } catch (error) {
       toast.error(error.response?.data?.detail || "Payment failed");
     } finally {
@@ -287,9 +313,19 @@ export default function Bookings() {
                           <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
                             {/* Client: Pay for pending booking */}
                             {user.role === "client" && booking.status === "pending" && !booking.payment && (
-                              <Dialog>
+                              <Dialog
+                                onOpenChange={(open) => {
+                                  if (open) {
+                                    setSelectedBooking(booking);
+                                    fetchPaymentQuote(booking);
+                                  } else {
+                                    setPaymentQuote(null);
+                                    setQuoteBookingId(null);
+                                  }
+                                }}
+                              >
                                 <DialogTrigger asChild>
-                                  <Button 
+                                  <Button
                                     className="rounded-xl gap-2"
                                     onClick={() => setSelectedBooking(booking)}
                                     data-testid={`pay-btn-${booking.id}`}
@@ -298,45 +334,97 @@ export default function Bookings() {
                                     Pay & Confirm
                                   </Button>
                                 </DialogTrigger>
-                                <DialogContent>
+                                <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
                                   <DialogHeader>
-                                    <DialogTitle>Confirm Payment</DialogTitle>
+                                    <DialogTitle>Confirm and Pay</DialogTitle>
                                   </DialogHeader>
-                                  <div className="space-y-4 mt-4">
-                                    <div className="p-4 bg-muted/50 rounded-xl space-y-2">
-                                      <div className="flex justify-between">
-                                        <span className="text-muted-foreground">Service</span>
-                                        <span className="font-medium">{booking.service_description}</span>
-                                      </div>
-                                      <div className="flex justify-between">
-                                        <span className="text-muted-foreground">Amount</span>
-                                        <span className="font-bold">KSh {booking.agreed_price.toLocaleString()}</span>
-                                      </div>
-                                      <div className="flex justify-between text-sm">
-                                        <span className="text-muted-foreground">Platform Fee (20%)</span>
-                                        <span>KSh {(booking.agreed_price * 0.2).toLocaleString()}</span>
-                                      </div>
+                                  <div className="space-y-4 mt-2">
+                                    {/* Service summary */}
+                                    <div className="rounded-xl bg-muted/40 p-3">
+                                      <p className="text-xs text-muted-foreground mb-0.5">Service</p>
+                                      <p className="font-medium text-sm">{booking.service_description}</p>
                                     </div>
-                                    
-                                    <div className="p-3 bg-primary/5 rounded-xl text-sm">
-                                      <p className="flex items-center gap-2">
-                                        <CheckCircle2 className="w-4 h-4 text-primary" />
-                                        Payment will be held in escrow until job completion
-                                      </p>
-                                    </div>
-                                    
-                                    <p className="text-sm text-muted-foreground text-center">
-                                      (M-Pesa payment is MOCKED for demo)
-                                    </p>
-                                    
-                                    <Button 
-                                      className="w-full h-12 rounded-xl"
-                                      onClick={() => handlePayment(booking)}
-                                      disabled={processingPayment}
-                                      data-testid="confirm-payment-btn"
-                                    >
-                                      {processingPayment ? "Processing..." : "Confirm Payment"}
-                                    </Button>
+
+                                    {/* Loading or quote breakdown */}
+                                    {loadingQuote || quoteBookingId !== booking.id || !paymentQuote ? (
+                                      <div className="rounded-xl border border-border p-4 flex items-center gap-2 text-muted-foreground">
+                                        <Loader2 className="w-4 h-4 animate-spin" />
+                                        <span className="text-sm">Calculating total…</span>
+                                      </div>
+                                    ) : (
+                                      <>
+                                        {/* Charge breakdown */}
+                                        <div className="rounded-xl border border-border p-4 space-y-2">
+                                          <div className="flex justify-between text-sm">
+                                            <span className="text-muted-foreground">Service amount</span>
+                                            <span className="font-medium">KSh {Number(paymentQuote.service_amount).toLocaleString()}</span>
+                                          </div>
+                                          <div className="flex justify-between text-sm">
+                                            <span className="text-muted-foreground">
+                                              Platform fee ({paymentQuote.platform_fee_percent}%)
+                                            </span>
+                                            <span>KSh {Number(paymentQuote.platform_fee_amount).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                          </div>
+                                          <div className="flex justify-between text-sm">
+                                            <span className="text-muted-foreground">Fixed fee</span>
+                                            <span>KSh {Number(paymentQuote.fixed_fee).toLocaleString()}</span>
+                                          </div>
+                                          <div className="flex justify-between pt-2 border-t border-border">
+                                            <span className="font-medium">Total</span>
+                                            <span className="font-bold text-lg" data-testid="payment-total">
+                                              KSh {Number(paymentQuote.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                            </span>
+                                          </div>
+                                        </div>
+
+                                        {/* Funding source */}
+                                        <div className="rounded-xl bg-primary/5 p-3 space-y-1.5 text-sm">
+                                          <div className="flex justify-between">
+                                            <span className="text-muted-foreground">Your wallet</span>
+                                            <span className="font-medium">KSh {Number(paymentQuote.wallet_balance).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                          </div>
+                                          <div className="flex justify-between">
+                                            <span className="text-muted-foreground">From wallet</span>
+                                            <span className="font-medium text-green-700">−KSh {Number(paymentQuote.wallet_used).toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                                          </div>
+                                          {paymentQuote.topup_required > 0 && (
+                                            <div className="flex justify-between">
+                                              <span className="text-muted-foreground">Pay via M-Pesa</span>
+                                              <span className="font-semibold text-amber-700" data-testid="topup-required">
+                                                KSh {Number(paymentQuote.topup_required).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                              </span>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {paymentQuote.fully_covered_by_wallet ? (
+                                          <div className="p-3 bg-green-50 rounded-xl text-sm flex items-center gap-2 text-green-800" data-testid="payment-mode-wallet">
+                                            <CheckCircle2 className="w-4 h-4" />
+                                            Your wallet covers this booking. Payment will move to escrow instantly.
+                                          </div>
+                                        ) : (
+                                          <div className="p-3 bg-amber-50 rounded-xl text-sm flex items-center gap-2 text-amber-900" data-testid="payment-mode-mpesa">
+                                            <AlertCircle className="w-4 h-4" />
+                                            You'll receive an M-Pesa STK prompt for KSh{" "}
+                                            {Number(paymentQuote.topup_required).toLocaleString(undefined, { minimumFractionDigits: 2 })}.
+                                            Enter your PIN to release funds to escrow.
+                                          </div>
+                                        )}
+
+                                        <Button
+                                          className="w-full h-12 rounded-xl"
+                                          onClick={() => handlePayment(booking)}
+                                          disabled={processingPayment}
+                                          data-testid="confirm-payment-btn"
+                                        >
+                                          {processingPayment
+                                            ? "Processing…"
+                                            : paymentQuote.fully_covered_by_wallet
+                                              ? `Pay KSh ${Number(paymentQuote.total).toLocaleString(undefined, { minimumFractionDigits: 2 })} from wallet`
+                                              : `Confirm & Pay KSh ${Number(paymentQuote.total).toLocaleString(undefined, { minimumFractionDigits: 2 })}`}
+                                        </Button>
+                                      </>
+                                    )}
                                   </div>
                                 </DialogContent>
                               </Dialog>
