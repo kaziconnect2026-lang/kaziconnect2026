@@ -84,7 +84,7 @@ export default function SearchProfessionals() {
   const [categorySearch, setCategorySearch] = useState("");
   const [loading, setLoading] = useState(!cached);
   const [fromCache, setFromCache] = useState(!!cached);
-  const [showMobileFilters, setShowMobileFilters] = useState(false);
+  const [showMobileFilters, setShowMobileFilters] = useState(true);
 
   useEffect(() => {
     const fetchCategories = async () => {
@@ -288,6 +288,26 @@ export default function SearchProfessionals() {
                     data-testid="search-input"
                   />
                 </div>
+              </div>
+
+              {/* Search CTA */}
+              <div className="space-y-2 pt-1">
+                <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Search</label>
+                <Button
+                  type="button"
+                  className="w-full h-12 rounded-xl text-base font-semibold"
+                  onClick={() => {
+                    // Results already auto-fetch via debounced effect.
+                    // On mobile, dismiss the filter panel so user sees results immediately.
+                    if (window.innerWidth < 1024) setShowMobileFilters(false);
+                    // Scroll results into view for clarity
+                    document.querySelector('[data-testid="results-count"]')?.scrollIntoView({ behavior: "smooth", block: "start" });
+                  }}
+                  data-testid="search-submit-btn"
+                >
+                  <Search className="w-4 h-4 mr-2" />
+                  Search
+                </Button>
               </div>
             </CardContent>
           </Card>
