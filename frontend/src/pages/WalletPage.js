@@ -319,8 +319,9 @@ export default function WalletPage() {
                     {/* Fee breakdown */}
                     {withdrawData.amount && parseFloat(withdrawData.amount) > 0 && (() => {
                       const amt = parseFloat(withdrawData.amount) || 0;
-                      const feePct = +(amt * 0.03).toFixed(2);
-                      const fixed = 20;
+                      const isPro = user?.role === "professional";
+                      const feePct = isPro ? 0 : +(amt * 0.03).toFixed(2);
+                      const fixed = isPro ? 15 : 20;
                       const total = +(amt + feePct + fixed).toFixed(2);
                       const insufficient = total > balance;
                       return (
@@ -332,12 +333,16 @@ export default function WalletPage() {
                             <span className="text-muted-foreground">You receive (M-Pesa)</span>
                             <span className="font-medium">KSh {amt.toLocaleString()}</span>
                           </div>
+                          {!isPro && (
+                            <div className="flex justify-between">
+                              <span className="text-muted-foreground">Withdrawal fee (3%)</span>
+                              <span>KSh {feePct.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
+                            </div>
+                          )}
                           <div className="flex justify-between">
-                            <span className="text-muted-foreground">Withdrawal fee (3%)</span>
-                            <span>KSh {feePct.toLocaleString(undefined, { minimumFractionDigits: 2 })}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Fixed fee</span>
+                            <span className="text-muted-foreground">
+                              {isPro ? "Flat withdrawal fee" : "Fixed fee"}
+                            </span>
                             <span>KSh {fixed}</span>
                           </div>
                           <div className="flex justify-between pt-2 border-t border-border">
