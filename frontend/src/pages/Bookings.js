@@ -311,8 +311,13 @@ export default function Bookings() {
 
                           {/* Actions */}
                           <div className="flex flex-wrap gap-2 mt-4 pt-4 border-t border-border">
-                            {/* Client: Pay for pending booking */}
-                            {user.role === "client" && booking.status === "pending" && !booking.payment && (
+                            {/* Client: Pay for pending booking OR retry a stalled payment */}
+                            {user.role === "client" && booking.status === "pending" && (() => {
+                              const payStatus = booking.payment?.status;
+                              const needsPayment = !booking.payment || payStatus === "awaiting_topup" || payStatus === "failed" || payStatus === "cancelled_retry";
+                              if (!needsPayment) return null;
+                              const isRetry = !!booking.payment;
+                              return (
                               <Dialog
                                 onOpenChange={(open) => {
                                   if (open) {
@@ -331,7 +336,7 @@ export default function Bookings() {
                                     data-testid={`pay-btn-${booking.id}`}
                                   >
                                     <CreditCard className="w-4 h-4" />
-                                    Pay & Confirm
+                                    {isRetry ? "Retry payment" : "Pay & Confirm"}
                                   </Button>
                                 </DialogTrigger>
                                 <DialogContent className="sm:max-w-md max-h-[90vh] overflow-y-auto">
@@ -428,7 +433,8 @@ export default function Bookings() {
                                   </div>
                                 </DialogContent>
                               </Dialog>
-                            )}
+                              );
+                            })()}
                             
                             {/* Client: Release payment for completed booking */}
                             {canReleasePayment && (

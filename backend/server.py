@@ -1350,7 +1350,7 @@ async def withdraw_quote(amount: float, user = Depends(get_current_user)):
     """
     if amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
-    fb = _calc_withdrawal_total(amount)
+    fb = _calc_withdrawal_total(amount, role=user.get("role", "client"))
     wallet_balance = float(user.get("wallet_balance") or 0)
     return {
         **fb,
@@ -1369,16 +1369,20 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
     if withdrawal.amount <= 0:
         raise HTTPException(status_code=400, detail="Amount must be positive")
 
-    fee_breakdown = _calc_withdrawal_total(withdrawal.amount)
+    fee_breakdown = _calc_withdrawal_total(withdrawal.amount, role=user.get("role", "client"))
     gross = fee_breakdown["gross"]
 
     current_balance = float(user.get("wallet_balance", 0.0))
     if gross > current_balance:
+        if user.get("role") == "professional":
+            fee_desc = f"KSh {int(PROFESSIONAL_WITHDRAWAL_FIXED_FEE)} fixed fee"
+        else:
+            fee_desc = f"3% + KSh {int(WITHDRAWAL_FIXED_FEE)} fees"
         raise HTTPException(
             status_code=400,
             detail=(
                 f"Insufficient wallet balance. You need KSh {gross:,.2f} (KSh {fee_breakdown['amount']:,.2f}"
-                f" + 3% + KSh {int(WITHDRAWAL_FIXED_FEE)} fees) but have KSh {current_balance:,.2f}."
+                f" + {fee_desc}) but have KSh {current_balance:,.2f}."
             ),
         )
 
@@ -1439,11 +1443,16 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
     )
 
     # Ledger entry for the fee (platform revenue)
+    fee_desc_text = (
+        f"Withdrawal fee (KSh {int(PROFESSIONAL_WITHDRAWAL_FIXED_FEE)})"
+        if user.get("role") == "professional"
+        else f"Withdrawal fee (3% + KSh {int(WITHDRAWAL_FIXED_FEE)})"
+    )
     await create_ledger_entry(
         entry_type=LedgerEntryType.PLATFORM_FEE,
         user_id=user["id"],
         amount=fee_breakdown["fee_total"],
-        description=f"Withdrawal fee (3% + KSh {int(WITHDRAWAL_FIXED_FEE)})",
+        description=fee_desc_text,
         reference_id=txn_id,
         reference_type="withdrawal_fee",
         metadata={
@@ -2737,6 +2746,7 @@ BOOKING_FEE_PERCENT = 1.5                # Client-side booking platform fee (% o
 BOOKING_FIXED_FEE = 20                   # Client-side booking fixed fee (KSh)
 WITHDRAWAL_FEE_PERCENT = 3               # Client-side withdrawal fee (% of withdrawal amount)
 WITHDRAWAL_FIXED_FEE = 20                # Client-side withdrawal fixed fee (KSh)
+PROFESSIONAL_WITHDRAWAL_FIXED_FEE = 15   # Professional flat withdrawal fee (KSh, no %)
 CLIENT_REGISTRATION_FEE = 20             # M-Pesa account verification fee for clients
 PROFESSIONAL_REGISTRATION_FEE = 2000     # Registration fee for professionals
 
@@ -2756,23 +2766,33 @@ def _calc_booking_total(service_amount: float) -> dict:
     }
 
 
-def _calc_withdrawal_total(withdrawal_amount: float) -> dict:
-    """Withdrawal breakdown: gross deducted from wallet = amount + 3% + KSh 20; net sent to M-Pesa = amount.
+def _calc_withdrawal_total(withdrawal_amount: float, role: str = "client") -> dict:
+    """Withdrawal breakdown.
+
+    - **Client**: amount + 3% + KSh 20 fixed
+    - **Professional**: amount + KSh 15 fixed (no percentage)
 
     Returns the gross (total wallet deduction) and the fee components.
     """
     amount = round(float(withdrawal_amount or 0), 2)
-    percent_fee = round(amount * (WITHDRAWAL_FEE_PERCENT / 100), 2)
-    fixed_fee = float(WITHDRAWAL_FIXED_FEE)
+    if role == "professional":
+        percent_fee = 0.0
+        fixed_fee = float(PROFESSIONAL_WITHDRAWAL_FIXED_FEE)
+        fee_percent_applied = 0.0
+    else:
+        percent_fee = round(amount * (WITHDRAWAL_FEE_PERCENT / 100), 2)
+        fixed_fee = float(WITHDRAWAL_FIXED_FEE)
+        fee_percent_applied = float(WITHDRAWAL_FEE_PERCENT)
     fee_total = round(percent_fee + fixed_fee, 2)
     gross = round(amount + fee_total, 2)
     return {
         "amount": amount,
-        "withdrawal_fee_percent": WITHDRAWAL_FEE_PERCENT,
+        "withdrawal_fee_percent": fee_percent_applied,
         "withdrawal_fee_amount": percent_fee,
         "fixed_fee": fixed_fee,
         "fee_total": fee_total,
         "gross": gross,
+        "role_applied": role,
     }
 
 
@@ -2815,13 +2835,36 @@ async def initiate_payment(payment_data: PaymentCreate, user = Depends(get_curre
     if booking["client_id"] != user["id"]:
         raise HTTPException(status_code=403, detail="Not authorized")
 
-    # Block double-pay
+    # Block double-pay only if it's already funded; allow retry for failed/awaiting_topup
     existing = await db.payments.find_one({
         "booking_id": payment_data.booking_id,
-        "status": {"$in": [PaymentStatus.ESCROW.value, "awaiting_topup"]},
+        "status": PaymentStatus.ESCROW.value,
     })
     if existing:
-        raise HTTPException(status_code=400, detail="This booking is already paid or has a pending payment")
+        raise HTTPException(status_code=400, detail="This booking is already paid")
+
+    # Clean up prior failed/awaiting_topup attempts so the retry starts fresh.
+    # For 'awaiting_topup' rows, refund any wallet portion that was reserved.
+    stale = await db.payments.find({
+        "booking_id": payment_data.booking_id,
+        "status": {"$in": ["awaiting_topup", "failed"]},
+    }).to_list(20)
+    for s in stale:
+        if s.get("status") == "awaiting_topup" and float(s.get("wallet_used") or 0) > 0:
+            await db.users.update_one(
+                {"id": s["client_id"]},
+                {"$inc": {"wallet_balance": float(s["wallet_used"])}},
+            )
+        await db.payments.update_one(
+            {"id": s["id"]},
+            {"$set": {
+                "status": "cancelled_retry",
+                "cancelled_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+    # Re-fetch user to get the refreshed wallet balance after any refund above
+    if stale:
+        user = await db.users.find_one({"id": user["id"]}, {"_id": 0}) or user
 
     # Fee breakdown
     service_amount = float(booking["agreed_price"])
