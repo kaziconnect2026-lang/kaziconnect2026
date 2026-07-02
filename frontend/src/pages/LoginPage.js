@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../co
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
 import { Eye, EyeOff, ArrowLeft } from "lucide-react";
+import KaziLogo from "../components/KaziLogo";
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -52,10 +53,7 @@ export default function LoginPage() {
           <Card className="border-border shadow-card">
             <CardHeader className="space-y-1 pb-6">
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
-                  <span className="text-primary-foreground font-heading font-bold text-xl">K</span>
-                </div>
-                <span className="font-heading font-bold text-xl">Kazi Links</span>
+                <KaziLogo size="md" />
               </div>
               <CardTitle className="font-heading text-2xl">Welcome back</CardTitle>
               <CardDescription>Sign in to your account to continue</CardDescription>

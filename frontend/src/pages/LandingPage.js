@@ -6,6 +6,7 @@ import { Card, CardContent } from "../components/ui/card";
 import { useAuth } from "../context/AuthContext";
 import { Search, Star, Shield, Clock, MapPin, ChevronRight, Zap, Scissors, Droplet, PenTool, Wrench, Paintbrush, Hammer, Sparkles } from "lucide-react";
 import axios from "axios";
+import KaziLogo from "../components/KaziLogo";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -63,10 +64,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-16">
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
-                <span className="text-primary-foreground font-heading font-bold text-xl">K</span>
-              </div>
-              <span className="font-heading font-bold text-xl text-foreground">Kazi Links</span>
+              <KaziLogo size="md" />
             </div>
             
             <div className="flex items-center gap-4">
@@ -330,10 +328,7 @@ export default function LandingPage() {
         <div className="max-w-7xl mx-auto">
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex items-center gap-2">
-              <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
-                <span className="text-primary-foreground font-heading font-bold text-xl">K</span>
-              </div>
-              <span className="font-heading font-bold text-xl text-foreground">Kazi Links</span>
+              <KaziLogo size="md" />
             </div>
             <p className="text-muted-foreground text-sm">
               © 2024 Kazi Links. Empowering work, building trust.

@@ -11,6 +11,7 @@ import {
   MapPin, Star, ChevronRight, LogOut, Home,
   FileText, User, Bell, Menu, X, Wallet, MessageCircle
 } from "lucide-react";
+import KaziLogo from "../components/KaziLogo";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -64,10 +65,7 @@ export default function ClientDashboard() {
       <header className="lg:hidden fixed top-0 left-0 right-0 z-50 glass border-b border-border/40">
         <div className="flex items-center justify-between px-4 h-16">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center">
-              <span className="text-primary-foreground font-heading font-bold">K</span>
-            </div>
-            <span className="font-heading font-bold">Kazi Links</span>
+            <KaziLogo size="sm" />
           </div>
           <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2">
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
@@ -123,10 +121,7 @@ export default function ClientDashboard() {
         {/* Desktop Sidebar */}
         <aside className="hidden lg:flex flex-col w-64 min-h-screen bg-card border-r border-border p-6">
           <div className="flex items-center gap-2 mb-8">
-            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
-              <span className="text-primary-foreground font-heading font-bold text-xl">K</span>
-            </div>
-            <span className="font-heading font-bold text-xl">Kazi Links</span>
+            <KaziLogo size="md" />
           </div>
 
           <nav className="flex-1 space-y-2">

@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../components/
 import { useAuth } from "../context/AuthContext";
 import { toast } from "sonner";
 import { Eye, EyeOff, ArrowLeft, User, Briefcase, Phone, ShieldCheck, Loader2, CheckCircle2 } from "lucide-react";
+import KaziLogo from "../components/KaziLogo";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
@@ -152,10 +153,7 @@ export default function RegisterPage() {
           <Card className="border-border shadow-card">
             <CardHeader className="space-y-1 pb-6">
               <div className="flex items-center gap-2 mb-4">
-                <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center">
-                  <span className="text-primary-foreground font-heading font-bold text-xl">K</span>
-                </div>
-                <span className="font-heading font-bold text-xl">Kazi Links</span>
+                <KaziLogo size="md" />
               </div>
               <CardTitle className="font-heading text-2xl">Create an account</CardTitle>
               <CardDescription>Join the Kazi Links community today</CardDescription>
