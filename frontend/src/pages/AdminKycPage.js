@@ -43,6 +43,7 @@ function AuthedImage({ url, className }) {
 export default function AdminKycPage() {
   const { userId } = useParams();
   const navigate = useNavigate();
+  const [statusFilter, setStatusFilter] = useState("pending");
   const [pending, setPending] = useState([]);
   const [loading, setLoading] = useState(true);
   const [active, setActive] = useState(null);
@@ -51,8 +52,8 @@ export default function AdminKycPage() {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
-    fetchPending();
-  }, []);
+    fetchPending(statusFilter);
+  }, [statusFilter]);
 
   useEffect(() => {
     if (!userId) {
@@ -62,13 +63,13 @@ export default function AdminKycPage() {
     fetchActive(userId);
   }, [userId]);
 
-  const fetchPending = async () => {
+  const fetchPending = async (status = "pending") => {
     setLoading(true);
     try {
-      const res = await axios.get(`${API}/admin/kyc/pending`);
+      const res = await axios.get(`${API}/admin/kyc/pending`, { params: { status } });
       setPending(res.data || []);
     } catch (err) {
-      toast.error("Failed to load pending KYC submissions");
+      toast.error("Failed to load KYC submissions");
     } finally {
       setLoading(false);
     }
@@ -107,6 +108,12 @@ export default function AdminKycPage() {
     }
   };
 
+  const statusTabs = [
+    { key: "pending", label: "Pending", tone: "amber" },
+    { key: "verified", label: "Approved", tone: "emerald" },
+    { key: "rejected", label: "Rejected", tone: "red" },
+  ];
+
   return (
     <div className="min-h-screen bg-background" data-testid="admin-kyc-page">
       <header className="sticky top-0 z-30 border-b border-border bg-background/95 backdrop-blur">
@@ -117,7 +124,7 @@ export default function AdminKycPage() {
           <ShieldCheck className="w-5 h-5 text-primary" />
           <h1 className="font-semibold text-lg">KYC Review</h1>
           <Badge variant="outline" className="ml-2 text-xs" data-testid="kyc-pending-count">
-            {pending.length} pending
+            {pending.length} {statusFilter === "verified" ? "approved" : statusFilter}
           </Badge>
         </div>
       </header>
@@ -125,15 +132,39 @@ export default function AdminKycPage() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 grid lg:grid-cols-[340px_1fr] gap-6">
         {/* Pending list */}
         <Card className="self-start overflow-hidden">
-          <div className="px-4 py-3 border-b border-border bg-muted/30">
-            <p className="font-medium text-sm">Awaiting review</p>
+          <div className="px-4 pt-3 pb-2 border-b border-border bg-muted/30 space-y-3">
+            <p className="font-medium text-sm">Submissions</p>
+            <div className="flex gap-1" role="tablist" data-testid="kyc-status-tabs">
+              {statusTabs.map((t) => {
+                const isActive = statusFilter === t.key;
+                return (
+                  <button
+                    key={t.key}
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => {
+                      setStatusFilter(t.key);
+                      if (userId) navigate("/admin/kyc");
+                    }}
+                    className={`flex-1 text-xs px-2 h-8 rounded-lg transition-colors ${
+                      isActive
+                        ? "bg-primary text-primary-foreground font-medium"
+                        : "bg-transparent text-muted-foreground hover:bg-muted"
+                    }`}
+                    data-testid={`kyc-tab-${t.key}`}
+                  >
+                    {t.label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
           <div className="max-h-[70vh] overflow-y-auto divide-y divide-border">
             {loading ? (
               <p className="p-6 text-center text-sm text-muted-foreground">Loading…</p>
             ) : pending.length === 0 ? (
               <p className="p-8 text-center text-sm text-muted-foreground">
-                No pending KYC submissions.
+                No {statusFilter === "verified" ? "approved" : statusFilter} KYC submissions.
               </p>
             ) : (
               pending.map((u) => (
@@ -150,7 +181,10 @@ export default function AdminKycPage() {
                     {u.email} · {u.role}
                   </p>
                   <p className="text-[10px] text-muted-foreground mt-0.5">
-                    Uploaded {u.id_uploaded_at ? new Date(u.id_uploaded_at).toLocaleString() : "—"}
+                    {statusFilter === "pending" ? "Uploaded" : statusFilter === "verified" ? "Verified" : "Reviewed"}{" "}
+                    {(u.id_verified_at || u.id_uploaded_at)
+                      ? new Date(u.id_verified_at || u.id_uploaded_at).toLocaleString()
+                      : "—"}
                   </p>
                 </button>
               ))
@@ -217,39 +251,58 @@ export default function AdminKycPage() {
                 </div>
               </div>
 
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Internal notes (optional)</p>
-                <Textarea
-                  rows={3}
-                  placeholder="e.g. Front photo blurry — please re-upload"
-                  value={notes}
-                  onChange={(e) => setNotes(e.target.value)}
-                  className="resize-none"
-                  data-testid="kyc-notes"
-                />
-              </div>
+              {active.user.id_verification_status === "pending" ? (
+                <>
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium">Internal notes (optional)</p>
+                    <Textarea
+                      rows={3}
+                      placeholder="e.g. Front photo blurry — please re-upload"
+                      value={notes}
+                      onChange={(e) => setNotes(e.target.value)}
+                      className="resize-none"
+                      data-testid="kyc-notes"
+                    />
+                  </div>
 
-              <div className="flex flex-wrap gap-3 pt-2 border-t border-border">
-                <Button
-                  variant="outline"
-                  className="rounded-xl h-11 border-red-200 text-red-700 hover:bg-red-50"
-                  onClick={() => decide(false)}
-                  disabled={submitting}
-                  data-testid="kyc-reject-btn"
-                >
-                  <XCircle className="w-4 h-4 mr-1.5" />
-                  Reject
-                </Button>
-                <Button
-                  className="rounded-xl h-11 bg-green-600 hover:bg-green-700"
-                  onClick={() => decide(true)}
-                  disabled={submitting}
-                  data-testid="kyc-approve-btn"
-                >
-                  <CheckCircle2 className="w-4 h-4 mr-1.5" />
-                  Approve & Verify
-                </Button>
-              </div>
+                  <div className="flex flex-wrap gap-3 pt-2 border-t border-border">
+                    <Button
+                      variant="outline"
+                      className="rounded-xl h-11 border-red-200 text-red-700 hover:bg-red-50"
+                      onClick={() => decide(false)}
+                      disabled={submitting}
+                      data-testid="kyc-reject-btn"
+                    >
+                      <XCircle className="w-4 h-4 mr-1.5" />
+                      Reject
+                    </Button>
+                    <Button
+                      className="rounded-xl h-11 bg-green-600 hover:bg-green-700"
+                      onClick={() => decide(true)}
+                      disabled={submitting}
+                      data-testid="kyc-approve-btn"
+                    >
+                      <CheckCircle2 className="w-4 h-4 mr-1.5" />
+                      Approve & Verify
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <div className="pt-2 border-t border-border space-y-2" data-testid="kyc-review-summary">
+                  {active.user.id_verification_notes && (
+                    <div className="rounded-xl bg-muted/40 p-3">
+                      <p className="text-xs font-medium text-muted-foreground mb-1">Review notes</p>
+                      <p className="text-sm">{active.user.id_verification_notes}</p>
+                    </div>
+                  )}
+                  <p className="text-xs text-muted-foreground">
+                    {active.user.id_verification_status === "verified" ? "Approved" : "Rejected"}
+                    {active.user.id_verified_at && (
+                      <> on {new Date(active.user.id_verified_at).toLocaleString()}</>
+                    )}
+                  </p>
+                </div>
+              )}
             </CardContent>
           )}
         </Card>

@@ -3190,6 +3190,27 @@ async def get_admin_stats(user = Depends(get_current_user)):
     total_deposits = sum(t["amount"] for t in wallet_deposits)
     total_withdrawals = sum(t["amount"] for t in wallet_withdrawals)
     
+    # Client-side fee tracking (booking: 1.5% + KSh 20; withdrawal: 3% + KSh 20)
+    # Booking fees are attached to payment docs once the client actually paid
+    # (escrow or released — awaiting_topup/failed/cancelled means no fee was actually charged).
+    funded_payments = [
+        p for p in all_payments
+        if p.get("status") in (PaymentStatus.ESCROW.value, PaymentStatus.RELEASED.value)
+    ]
+    client_booking_percent_fees = sum(float(p.get("booking_fee_amount") or 0) for p in funded_payments)
+    client_booking_fixed_fees = sum(float(p.get("booking_fixed_fee") or 0) for p in funded_payments)
+    client_booking_fees_collected = round(client_booking_percent_fees + client_booking_fixed_fees, 2)
+
+    # Withdrawal fees are stored on wallet_transactions of type "withdrawal"
+    client_withdrawal_percent_fees = sum(float(t.get("fee_amount") or 0) for t in wallet_withdrawals)
+    client_withdrawal_fixed_fees = sum(float(t.get("fixed_fee") or 0) for t in wallet_withdrawals)
+    client_withdrawal_fees_collected = round(client_withdrawal_percent_fees + client_withdrawal_fixed_fees, 2)
+
+    # KYC verification stats
+    kyc_pending = await db.users.count_documents({"id_verification_status": "pending"})
+    kyc_verified = await db.users.count_documents({"id_verification_status": "verified"})
+    kyc_rejected = await db.users.count_documents({"id_verification_status": "rejected"})
+
     # Review stats
     total_reviews = await db.reviews.count_documents({})
     all_reviews = await db.reviews.find({}, {"rating": 1, "_id": 0}).to_list(10000)
@@ -3229,7 +3250,24 @@ async def get_admin_stats(user = Depends(get_current_user)):
             "escrow_balance": escrow_balance,
             "platform_fee_percentage": PLATFORM_FEE_PERCENTAGE,
             "total_wallet_deposits": total_deposits,
-            "total_wallet_withdrawals": total_withdrawals
+            "total_wallet_withdrawals": total_withdrawals,
+            # Client-side fee schedule + collected totals
+            "client_booking_fee_percent": BOOKING_FEE_PERCENT,
+            "client_booking_fixed_fee": BOOKING_FIXED_FEE,
+            "client_booking_fees_collected": client_booking_fees_collected,
+            "client_booking_percent_fees": round(client_booking_percent_fees, 2),
+            "client_booking_fixed_fees": round(client_booking_fixed_fees, 2),
+            "client_withdrawal_fee_percent": WITHDRAWAL_FEE_PERCENT,
+            "client_withdrawal_fixed_fee": WITHDRAWAL_FIXED_FEE,
+            "client_withdrawal_fees_collected": client_withdrawal_fees_collected,
+            "client_withdrawal_percent_fees": round(client_withdrawal_percent_fees, 2),
+            "client_withdrawal_fixed_fees": round(client_withdrawal_fixed_fees, 2),
+        },
+        "kyc": {
+            "pending": kyc_pending,
+            "approved": kyc_verified,
+            "rejected": kyc_rejected,
+            "total": kyc_pending + kyc_verified + kyc_rejected,
         },
         "reviews": {
             "total": total_reviews,
@@ -4265,11 +4303,27 @@ class KYCVerifyRequest(BaseModel):
 
 
 @api_router.get("/admin/kyc/pending")
-async def admin_list_pending_kyc(user = Depends(get_current_user), limit: int = 200):
+async def admin_list_pending_kyc(
+    user = Depends(get_current_user),
+    status: str = "pending",
+    limit: int = 200,
+):
+    """List KYC submissions filtered by verification status.
+
+    ``status`` accepts: ``pending`` (default), ``verified``, ``rejected``,
+    or ``all`` to return every user who ever uploaded ID photos.
+    """
     if user["role"] != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
+    status = (status or "pending").lower()
+    if status == "all":
+        query = {"id_uploaded_at": {"$exists": True, "$ne": None}}
+    elif status in {"pending", "verified", "rejected"}:
+        query = {"id_verification_status": status}
+    else:
+        raise HTTPException(status_code=400, detail="Invalid status filter")
     users = await db.users.find(
-        {"id_verification_status": "pending"},
+        query,
         {"_id": 0, "password_hash": 0},
     ).sort("id_uploaded_at", -1).to_list(limit)
     return users

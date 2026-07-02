@@ -420,6 +420,116 @@ export default function AdminDashboard() {
                   </Card>
                 </div>
 
+                {/* Client Fee Breakdown + KYC Status */}
+                <div className="grid lg:grid-cols-3 gap-6 mb-8">
+                  {/* Client Booking Fees */}
+                  <Card className="border-border" data-testid="client-booking-fees-card">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="font-heading text-base flex items-center gap-2">
+                        <Receipt className="w-4 h-4 text-primary" />
+                        Client Booking Fees
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">
+                        {stats?.financials?.client_booking_fee_percent ?? 1.5}% + KSh {stats?.financials?.client_booking_fixed_fee ?? 20} per booking
+                      </p>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-xs text-muted-foreground">% fees</span>
+                        <span className="font-medium text-sm" data-testid="booking-percent-fees">
+                          KSh {(stats?.financials?.client_booking_percent_fees || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-xs text-muted-foreground">Fixed fees</span>
+                        <span className="font-medium text-sm" data-testid="booking-fixed-fees">
+                          KSh {(stats?.financials?.client_booking_fixed_fees || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between pt-2 border-t border-border">
+                        <span className="text-sm font-medium">Total collected</span>
+                        <span className="font-bold text-emerald-600" data-testid="booking-fees-total">
+                          KSh {(stats?.financials?.client_booking_fees_collected || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Client Withdrawal Fees */}
+                  <Card className="border-border" data-testid="client-withdrawal-fees-card">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="font-heading text-base flex items-center gap-2">
+                        <ArrowUpRight className="w-4 h-4 text-primary" />
+                        Client Withdrawal Fees
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">
+                        {stats?.financials?.client_withdrawal_fee_percent ?? 3}% + KSh {stats?.financials?.client_withdrawal_fixed_fee ?? 20} per withdrawal
+                      </p>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-xs text-muted-foreground">% fees</span>
+                        <span className="font-medium text-sm" data-testid="withdrawal-percent-fees">
+                          KSh {(stats?.financials?.client_withdrawal_percent_fees || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-xs text-muted-foreground">Fixed fees</span>
+                        <span className="font-medium text-sm" data-testid="withdrawal-fixed-fees">
+                          KSh {(stats?.financials?.client_withdrawal_fixed_fees || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                      <div className="flex items-baseline justify-between pt-2 border-t border-border">
+                        <span className="text-sm font-medium">Total collected</span>
+                        <span className="font-bold text-emerald-600" data-testid="withdrawal-fees-total">
+                          KSh {(stats?.financials?.client_withdrawal_fees_collected || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* KYC Snapshot */}
+                  <Card className="border-border" data-testid="kyc-status-card">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="font-heading text-base flex items-center gap-2">
+                        <ShieldCheck className="w-4 h-4 text-primary" />
+                        ID Verification (KYC)
+                      </CardTitle>
+                      <p className="text-xs text-muted-foreground">
+                        {stats?.kyc?.total || 0} total submissions
+                      </p>
+                    </CardHeader>
+                    <CardContent className="space-y-2">
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-amber-500" /> Pending
+                        </span>
+                        <span className="font-bold text-lg" data-testid="kyc-pending-count-stat">{stats?.kyc?.pending || 0}</span>
+                      </div>
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-emerald-500" /> Approved
+                        </span>
+                        <span className="font-bold text-lg" data-testid="kyc-approved-count-stat">{stats?.kyc?.approved || 0}</span>
+                      </div>
+                      <div className="flex items-baseline justify-between">
+                        <span className="text-xs text-muted-foreground inline-flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-red-500" /> Rejected
+                        </span>
+                        <span className="font-medium text-sm" data-testid="kyc-rejected-count-stat">{stats?.kyc?.rejected || 0}</span>
+                      </div>
+                      <Link
+                        to="/admin/kyc"
+                        className="mt-3 flex items-center justify-center gap-1.5 w-full h-10 rounded-xl bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+                        data-testid="kyc-review-link"
+                      >
+                        Review ID submissions
+                        <ChevronRight className="w-4 h-4" />
+                      </Link>
+                    </CardContent>
+                  </Card>
+                </div>
+
                 {/* Secondary Stats */}
                 <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
                   <Card className="border-border">
