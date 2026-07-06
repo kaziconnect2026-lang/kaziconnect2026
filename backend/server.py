@@ -934,6 +934,37 @@ async def login(credentials: UserLogin):
         )
     )
 
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@api_router.post("/auth/change-password")
+async def change_password(payload: ChangePasswordRequest, user = Depends(get_current_user)):
+    """Authenticated user updates their own password."""
+    if not payload.current_password or not payload.new_password:
+        raise HTTPException(status_code=400, detail="Both current and new passwords are required.")
+    if len(payload.new_password) < 8:
+        raise HTTPException(status_code=400, detail="New password must be at least 8 characters.")
+    if payload.new_password == payload.current_password:
+        raise HTTPException(status_code=400, detail="New password must differ from the current password.")
+
+    record = await db.users.find_one({"id": user["id"]}, {"password_hash": 1})
+    if not record or not verify_password(payload.current_password, record["password_hash"]):
+        raise HTTPException(status_code=401, detail="Current password is incorrect.")
+
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "password_hash": hash_password(payload.new_password),
+            "password_changed_at": datetime.now(timezone.utc).isoformat(),
+        }},
+    )
+    return {"message": "Password updated successfully."}
+
+
+
 @api_router.get("/auth/me", response_model=UserResponse)
 async def get_me(user = Depends(get_current_user)):
     created_at = user.get("created_at")
@@ -1403,6 +1434,25 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
     # Generate transaction ID
     txn_id = await generate_transaction_id()
 
+    # If B2C credentials are configured, fire a real M-Pesa payout.
+    # Otherwise fall back to the MOCKED "instant success" behaviour so testing works.
+    b2c_live = mpesa_service.b2c_configured()
+    b2c_response = None
+    if b2c_live:
+        try:
+            b2c_response = await mpesa_service.b2c_payment_request(
+                phone_number=phone,
+                amount=fee_breakdown["amount"],
+                remarks=f"KaziLinks withdrawal {txn_id}",
+                occasion="Wallet Withdrawal",
+            )
+        except Exception as exc:
+            logger.exception("B2C payout failed for user %s", user["id"])
+            raise HTTPException(
+                status_code=502,
+                detail=f"M-Pesa payout could not be initiated. Please try again shortly. ({exc})",
+            )
+
     # Create wallet transaction record (records the AMOUNT sent to M-Pesa; fee fields are separate)
     transaction_id = str(uuid.uuid4())
     transaction_doc = {
@@ -1417,10 +1467,14 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
         "fixed_fee": fee_breakdown["fixed_fee"],                  # KSh 20
         "fee_total": fee_breakdown["fee_total"],
         "gross_amount": gross,                                    # Total deducted from wallet
-        "status": "completed",  # MOCKED - instant success
+        # Live B2C payouts stay "processing" until Safaricom result callback confirms.
+        "status": "processing" if b2c_live else "completed",
         "reference": f"MPESA-WD-{txn_id}",
         "phone_number": phone,
         "created_at": datetime.now(timezone.utc).isoformat(),
+        "b2c_live": b2c_live,
+        "b2c_conversation_id": (b2c_response or {}).get("ConversationID"),
+        "b2c_originator_conversation_id": (b2c_response or {}).get("OriginatorConversationID"),
     }
 
     await db.wallet_transactions.insert_one(transaction_doc)
@@ -1473,7 +1527,11 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
     updated_user = await db.users.find_one({"id": user["id"]}, {"_id": 0})
 
     return {
-        "message": "Withdrawal successful (MOCKED) - Sent to M-Pesa",
+        "message": (
+            "Withdrawal initiated — M-Pesa is processing your payout."
+            if b2c_live
+            else "Withdrawal successful (MOCKED) - Sent to M-Pesa"
+        ),
         "transaction_id": txn_id,
         "amount": fee_breakdown["amount"],
         "fee_amount": fee_breakdown["withdrawal_fee_amount"],
@@ -1481,6 +1539,8 @@ async def withdraw_from_wallet(withdrawal: WithdrawalRequest, user = Depends(get
         "fee_total": fee_breakdown["fee_total"],
         "gross_charged": gross,
         "new_balance": updated_user.get("wallet_balance", 0.0),
+        "b2c_live": b2c_live,
+        "status": "processing" if b2c_live else "completed",
     }
 
 # ============= PUSH NOTIFICATION ENDPOINTS =============

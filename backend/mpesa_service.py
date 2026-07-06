@@ -188,3 +188,125 @@ async def query_stk_status(checkout_request_id: str) -> dict:
         return resp.json()
     except Exception:
         return {"raw": resp.text, "status": resp.status_code}
+
+
+# ---------------------------------------------------------------------------
+# B2C (Business to Customer) — used for professional / client withdrawals
+# ---------------------------------------------------------------------------
+
+def b2c_configured() -> bool:
+    """True when all env vars needed to fire a live B2C payment are present."""
+    return bool(
+        os.environ.get("MPESA_INITIATOR_NAME")
+        and os.environ.get("MPESA_SECURITY_CREDENTIAL")
+        and os.environ.get("MPESA_B2C_SHORTCODE") or os.environ.get("MPESA_SHORTCODE")
+    )
+
+
+def _b2c_result_url() -> str:
+    base = (os.environ.get("MPESA_B2C_CALLBACK_BASE_URL")
+            or os.environ["MPESA_CALLBACK_BASE_URL"]).rstrip("/")
+    secret = os.environ["MPESA_CALLBACK_SECRET"]
+    return f"{base}/api/mpesa/b2c/result/{secret}"
+
+
+def _b2c_timeout_url() -> str:
+    base = (os.environ.get("MPESA_B2C_CALLBACK_BASE_URL")
+            or os.environ["MPESA_CALLBACK_BASE_URL"]).rstrip("/")
+    secret = os.environ["MPESA_CALLBACK_SECRET"]
+    return f"{base}/api/mpesa/b2c/timeout/{secret}"
+
+
+async def b2c_payment_request(
+    phone_number: str,
+    amount: float,
+    remarks: str,
+    occasion: str = "KaziLinks Payout",
+    command_id: str = "BusinessPayment",
+) -> dict:
+    """
+    Fire a live B2C payment (money leaving platform shortcode → customer M-Pesa).
+    ``command_id`` options: ``SalaryPayment``, ``BusinessPayment`` (default), ``PromotionPayment``.
+    Requires MPESA_INITIATOR_NAME + MPESA_SECURITY_CREDENTIAL env vars.
+    """
+    token = await get_access_token()
+    shortcode = os.environ.get("MPESA_B2C_SHORTCODE") or os.environ["MPESA_SHORTCODE"]
+    initiator = os.environ["MPESA_INITIATOR_NAME"]
+    security_credential = os.environ["MPESA_SECURITY_CREDENTIAL"]
+
+    payload = {
+        "InitiatorName": initiator,
+        "SecurityCredential": security_credential,
+        "CommandID": command_id,
+        "Amount": int(round(amount)),
+        "PartyA": shortcode,
+        "PartyB": normalize_phone(phone_number),
+        "Remarks": (remarks or "KaziLinks payout")[:100],
+        "QueueTimeOutURL": _b2c_timeout_url(),
+        "ResultURL": _b2c_result_url(),
+        "Occasion": (occasion or "Withdrawal")[:100],
+    }
+
+    url = f"{_base_url()}/mpesa/b2c/v1/paymentrequest"
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+
+    async with httpx.AsyncClient(timeout=30.0) as http:
+        resp = await http.post(url, json=payload, headers=headers)
+
+    try:
+        body = resp.json()
+    except Exception:
+        body = {"raw": resp.text}
+
+    if resp.status_code != 200:
+        logger.error("M-Pesa B2C failed: %s %s", resp.status_code, body)
+        raise RuntimeError(
+            body.get("errorMessage")
+            or body.get("ResponseDescription")
+            or f"B2C request failed (HTTP {resp.status_code})"
+        )
+
+    if str(body.get("ResponseCode")) != "0":
+        logger.error("M-Pesa B2C non-zero response: %s", body)
+        raise RuntimeError(
+            body.get("ResponseDescription") or "B2C request rejected by Safaricom"
+        )
+
+    return body
+
+
+def parse_b2c_result(payload: dict) -> dict:
+    """Flatten the Safaricom B2C result callback into a simpler dict."""
+    result = (payload or {}).get("Result") or {}
+    out = {
+        "conversation_id": result.get("ConversationID"),
+        "originator_conversation_id": result.get("OriginatorConversationID"),
+        "transaction_id": result.get("TransactionID"),
+        "result_code": result.get("ResultCode"),
+        "result_desc": result.get("ResultDesc"),
+        "amount": None,
+        "transaction_receipt": None,
+        "receiver_party_public_name": None,
+        "transaction_completed_datetime": None,
+        "b2c_utility_account_available_funds": None,
+        "b2c_working_account_available_funds": None,
+        "b2c_recipient_is_registered_customer": None,
+        "b2c_charges_paid_account_available_funds": None,
+    }
+    items = (result.get("ResultParameters") or {}).get("ResultParameter") or []
+    key_map = {
+        "TransactionAmount": "amount",
+        "TransactionReceipt": "transaction_receipt",
+        "ReceiverPartyPublicName": "receiver_party_public_name",
+        "TransactionCompletedDateTime": "transaction_completed_datetime",
+        "B2CUtilityAccountAvailableFunds": "b2c_utility_account_available_funds",
+        "B2CWorkingAccountAvailableFunds": "b2c_working_account_available_funds",
+        "B2CChargesPaidAccountAvailableFunds": "b2c_charges_paid_account_available_funds",
+        "B2CRecipientIsRegisteredCustomer": "b2c_recipient_is_registered_customer",
+    }
+    for item in items:
+        name = item.get("Key")
+        value = item.get("Value")
+        if name in key_map:
+            out[key_map[name]] = value
+    return out

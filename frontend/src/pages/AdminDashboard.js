@@ -198,6 +198,14 @@ export default function AdminDashboard() {
                 <Shield className="w-5 h-5" />
                 <span>KYC Review</span>
               </Link>
+              <button
+                onClick={() => { setActiveTab("security"); setMobileMenuOpen(false); }}
+                className={`w-full flex items-center gap-3 p-3 rounded-xl ${activeTab === "security" ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}
+                data-testid="mobile-nav-security"
+              >
+                <ShieldCheck className="w-5 h-5" />
+                <span>Security</span>
+              </button>
             </div>
 
             <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-destructive/10 text-destructive mt-2">
@@ -302,6 +310,14 @@ export default function AdminDashboard() {
               <span>KYC Review</span>
               <ChevronRight className="w-4 h-4 ml-auto" />
             </Link>
+            <button
+              onClick={() => setActiveTab("security")}
+              className={`w-full flex items-center gap-3 p-3 rounded-xl transition-colors ${activeTab === "security" ? "bg-primary/10 text-primary font-medium" : "hover:bg-muted"}`}
+              data-testid="nav-security"
+            >
+              <ShieldCheck className="w-5 h-5" />
+              <span>Security</span>
+            </button>
           </nav>
 
           <div className="pt-6 border-t border-border">
@@ -997,9 +1013,148 @@ export default function AdminDashboard() {
                 </div>
               </>
             )}
+
+            {/* Security Tab — Change Password */}
+            {activeTab === "security" && <AdminSecurityTab />}
           </div>
         </main>
       </div>
+    </div>
+  );
+}
+
+
+function AdminPasswordField({ id, label, value, onChange, visible, toggle, testId, autoComplete }) {
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="text-sm font-medium">{label}</label>
+      <div className="relative">
+        <Input
+          id={id}
+          type={visible ? "text" : "password"}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="h-11 rounded-xl pr-11"
+          data-testid={testId}
+          autoComplete={autoComplete}
+        />
+        <button
+          type="button"
+          onClick={toggle}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+          data-testid={`${testId}-toggle`}
+          aria-label={visible ? "Hide password" : "Show password"}
+        >
+          {visible ? <XCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AdminSecurityTab() {
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [show, setShow] = useState({ current: false, next: false, confirm: false });
+  const [submitting, setSubmitting] = useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (submitting) return;
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      toast.error("Please fill in all fields.");
+      return;
+    }
+    if (newPassword.length < 8) {
+      toast.error("New password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error("New password and confirmation do not match.");
+      return;
+    }
+    if (newPassword === currentPassword) {
+      toast.error("New password must be different from the current one.");
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await axios.post(`${API}/auth/change-password`, {
+        current_password: currentPassword,
+        new_password: newPassword,
+      });
+      toast.success("Password updated. Use it the next time you log in.");
+      setCurrentPassword("");
+      setNewPassword("");
+      setConfirmPassword("");
+    } catch (err) {
+      toast.error(err.response?.data?.detail || "Could not update password.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div data-testid="admin-security-tab">
+      <div className="mb-8">
+        <h1 className="font-heading text-2xl lg:text-3xl font-bold mb-2">Security</h1>
+        <p className="text-muted-foreground">Manage your admin sign-in credentials.</p>
+      </div>
+
+      <Card className="max-w-xl border-border">
+        <CardHeader>
+          <CardTitle className="font-heading flex items-center gap-2">
+            <ShieldCheck className="w-5 h-5 text-primary" />
+            Change Password
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={submit} className="space-y-4">
+            <AdminPasswordField
+              id="current-password"
+              label="Current password"
+              value={currentPassword}
+              onChange={setCurrentPassword}
+              visible={show.current}
+              toggle={() => setShow((s) => ({ ...s, current: !s.current }))}
+              testId="current-password-input"
+              autoComplete="current-password"
+            />
+            <AdminPasswordField
+              id="new-password"
+              label="New password"
+              value={newPassword}
+              onChange={setNewPassword}
+              visible={show.next}
+              toggle={() => setShow((s) => ({ ...s, next: !s.next }))}
+              testId="new-password-input"
+              autoComplete="new-password"
+            />
+            <p className="text-xs text-muted-foreground -mt-2">
+              At least 8 characters. Choose something you don&apos;t use elsewhere.
+            </p>
+            <AdminPasswordField
+              id="confirm-password"
+              label="Confirm new password"
+              value={confirmPassword}
+              onChange={setConfirmPassword}
+              visible={show.confirm}
+              toggle={() => setShow((s) => ({ ...s, confirm: !s.confirm }))}
+              testId="confirm-password-input"
+              autoComplete="new-password"
+            />
+            <Button
+              type="submit"
+              disabled={submitting}
+              className="w-full h-11 rounded-xl mt-2"
+              data-testid="change-password-submit"
+            >
+              {submitting ? "Updating…" : "Update password"}
+            </Button>
+          </form>
+        </CardContent>
+      </Card>
     </div>
   );
 }
