@@ -1140,6 +1140,87 @@ async def get_deposit_status(checkout_request_id: str, user = Depends(get_curren
     }
 
 
+@api_router.post("/mpesa/b2c/result/{secret}")
+async def mpesa_b2c_result(secret: str, request: Request):
+    """
+    Safaricom B2C result callback — fired once the payout to the customer settles.
+    Always returns 200 to avoid Safaricom retries; work is idempotent via ConversationID.
+    """
+    expected_secret = os.environ.get("MPESA_CALLBACK_SECRET", "")
+    if not expected_secret or secret != expected_secret:
+        logger.warning("B2C result received with invalid secret: %s", secret)
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    try:
+        payload = await request.json()
+    except Exception:
+        logger.warning("B2C result received with invalid JSON")
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    logger.info("B2C result callback received: %s", payload)
+    parsed = mpesa_service.parse_b2c_result(payload)
+    conv_id = parsed.get("conversation_id")
+    if not conv_id:
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    txn = await db.wallet_transactions.find_one({"b2c_conversation_id": conv_id})
+    if not txn or txn.get("status") not in ("processing", "pending"):
+        # Already handled or unknown conversation — no-op
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+    if str(parsed.get("result_code")) == "0":
+        # Success: mark transaction completed, store MPesa receipt
+        await db.wallet_transactions.update_one(
+            {"id": txn["id"]},
+            {"$set": {
+                "status": "completed",
+                "reference": parsed.get("transaction_receipt") or txn.get("reference"),
+                "b2c_result": parsed,
+                "completed_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+    else:
+        # Failure: refund the gross amount back to the user's wallet and mark txn failed
+        await db.wallet_transactions.update_one(
+            {"id": txn["id"]},
+            {"$set": {
+                "status": "failed",
+                "failure_code": str(parsed.get("result_code")),
+                "failure_reason": parsed.get("result_desc"),
+                "b2c_result": parsed,
+                "failed_at": datetime.now(timezone.utc).isoformat(),
+            }},
+        )
+        refund_amount = float(txn.get("gross_amount") or 0)
+        if refund_amount > 0:
+            await db.users.update_one(
+                {"id": txn["user_id"]},
+                {"$inc": {"wallet_balance": refund_amount}},
+            )
+            logger.info("Refunded KSh %s to user %s after B2C failure", refund_amount, txn["user_id"])
+
+    return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+
+@api_router.post("/mpesa/b2c/timeout/{secret}")
+async def mpesa_b2c_timeout(secret: str, request: Request):
+    """
+    Safaricom B2C timeout callback — fired if the payout could not be resolved in time.
+    We treat it as a soft failure: keep the txn as processing so ops can query manually.
+    """
+    expected_secret = os.environ.get("MPESA_CALLBACK_SECRET", "")
+    if not expected_secret or secret != expected_secret:
+        return {"ResultCode": 0, "ResultDesc": "Accepted"}
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    logger.warning("B2C timeout callback received: %s", payload)
+    return {"ResultCode": 0, "ResultDesc": "Accepted"}
+
+
+
+
 @api_router.post("/mpesa/callback/{secret}")
 async def mpesa_callback(secret: str, request: Request):
     """
