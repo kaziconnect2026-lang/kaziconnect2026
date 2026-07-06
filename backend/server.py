@@ -3240,7 +3240,8 @@ async def get_admin_stats(user = Depends(get_current_user)):
     released_payments = [p for p in all_payments if p["status"] == PaymentStatus.RELEASED.value]
     escrow_payments = [p for p in all_payments if p["status"] == PaymentStatus.ESCROW.value]
     
-    total_revenue = sum(p["platform_fee"] for p in released_payments)
+    # Escrow commission from completed bookings (existing)
+    escrow_commission_revenue = sum(p["platform_fee"] for p in released_payments)
     total_transactions = sum(p["amount"] for p in released_payments)
     escrow_balance = sum(p["amount"] for p in escrow_payments)
     
@@ -3265,6 +3266,14 @@ async def get_admin_stats(user = Depends(get_current_user)):
     client_withdrawal_percent_fees = sum(float(t.get("fee_amount") or 0) for t in wallet_withdrawals)
     client_withdrawal_fixed_fees = sum(float(t.get("fixed_fee") or 0) for t in wallet_withdrawals)
     client_withdrawal_fees_collected = round(client_withdrawal_percent_fees + client_withdrawal_fixed_fees, 2)
+
+    # Combined platform revenue = escrow commission + client booking fees + client withdrawal fees.
+    total_revenue = round(
+        escrow_commission_revenue
+        + client_booking_fees_collected
+        + client_withdrawal_fees_collected,
+        2,
+    )
 
     # KYC verification stats
     kyc_pending = await db.users.count_documents({"id_verification_status": "pending"})
@@ -3307,6 +3316,7 @@ async def get_admin_stats(user = Depends(get_current_user)):
         "financials": {
             "total_transactions": total_transactions,
             "platform_revenue": total_revenue,
+            "escrow_commission_revenue": round(escrow_commission_revenue, 2),
             "escrow_balance": escrow_balance,
             "platform_fee_percentage": PLATFORM_FEE_PERCENTAGE,
             "total_wallet_deposits": total_deposits,

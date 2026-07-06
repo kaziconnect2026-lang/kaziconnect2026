@@ -817,7 +817,7 @@ export default function AdminDashboard() {
                     value={`KSh ${(stats?.financials?.platform_revenue || 0).toLocaleString()}`}
                     icon={TrendingUp}
                     color="emerald"
-                    subtitle={`${stats?.financials?.platform_fee_percentage}% commission`}
+                    subtitle="Escrow + booking + withdrawal fees"
                   />
                   <StatCard 
                     title="Escrow Balance" 
@@ -833,6 +833,77 @@ export default function AdminDashboard() {
                     color="purple"
                   />
                 </div>
+
+                {/* Platform Revenue Breakdown */}
+                <Card className="border-border mb-8" data-testid="platform-revenue-breakdown">
+                  <CardHeader>
+                    <CardTitle className="font-heading text-lg flex items-center gap-2">
+                      <Receipt className="w-5 h-5 text-primary" />
+                      Platform Revenue Breakdown
+                    </CardTitle>
+                    <p className="text-sm text-muted-foreground">
+                      Every fee stream that rolls into total platform revenue.
+                    </p>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {/* Row 1 — Escrow commission */}
+                    <div className="grid md:grid-cols-[1fr_auto_auto] gap-3 items-center p-4 rounded-xl bg-muted/30 border border-border">
+                      <div>
+                        <p className="font-medium text-sm">Escrow commission on completed bookings</p>
+                        <p className="text-xs text-muted-foreground">
+                          {stats?.financials?.platform_fee_percentage ?? 20}% of released booking amount
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="w-fit">
+                        {stats?.financials?.platform_fee_percentage ?? 20}%
+                      </Badge>
+                      <p className="font-bold text-emerald-600 text-right" data-testid="revenue-escrow-commission">
+                        KSh {(stats?.financials?.escrow_commission_revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </p>
+                    </div>
+
+                    {/* Row 2 — Client booking fees */}
+                    <div className="grid md:grid-cols-[1fr_auto_auto] gap-3 items-center p-4 rounded-xl bg-muted/30 border border-border">
+                      <div>
+                        <p className="font-medium text-sm">Client booking fees (STK Push)</p>
+                        <p className="text-xs text-muted-foreground">
+                          {stats?.financials?.client_booking_fee_percent ?? 1.5}% + KSh {stats?.financials?.client_booking_fixed_fee ?? 20} per booking · % KSh {(stats?.financials?.client_booking_percent_fees || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} + fixed KSh {(stats?.financials?.client_booking_fixed_fees || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="w-fit">
+                        {stats?.financials?.client_booking_fee_percent ?? 1.5}% + KSh {stats?.financials?.client_booking_fixed_fee ?? 20}
+                      </Badge>
+                      <p className="font-bold text-emerald-600 text-right" data-testid="revenue-booking-fees">
+                        KSh {(stats?.financials?.client_booking_fees_collected || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </p>
+                    </div>
+
+                    {/* Row 3 — Client withdrawal fees */}
+                    <div className="grid md:grid-cols-[1fr_auto_auto] gap-3 items-center p-4 rounded-xl bg-muted/30 border border-border">
+                      <div>
+                        <p className="font-medium text-sm">Client withdrawal fees (B2C)</p>
+                        <p className="text-xs text-muted-foreground">
+                          {stats?.financials?.client_withdrawal_fee_percent ?? 3}% + KSh {stats?.financials?.client_withdrawal_fixed_fee ?? 20} per withdrawal · % KSh {(stats?.financials?.client_withdrawal_percent_fees || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })} + fixed KSh {(stats?.financials?.client_withdrawal_fixed_fees || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                        </p>
+                      </div>
+                      <Badge variant="outline" className="w-fit">
+                        {stats?.financials?.client_withdrawal_fee_percent ?? 3}% + KSh {stats?.financials?.client_withdrawal_fixed_fee ?? 20}
+                      </Badge>
+                      <p className="font-bold text-emerald-600 text-right" data-testid="revenue-withdrawal-fees">
+                        KSh {(stats?.financials?.client_withdrawal_fees_collected || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </p>
+                    </div>
+
+                    {/* Total */}
+                    <div className="grid md:grid-cols-[1fr_auto_auto] gap-3 items-center p-4 rounded-xl bg-primary/5 border border-primary/30">
+                      <p className="font-semibold">Total platform revenue</p>
+                      <span />
+                      <p className="font-bold text-lg text-emerald-700" data-testid="revenue-grand-total">
+                        KSh {(stats?.financials?.platform_revenue || 0).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
 
                 {/* Booking Status Breakdown */}
                 <Card className="border-border mb-8">
