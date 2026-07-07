@@ -1,0 +1,27 @@
+{
+  "summary": "Backend-only testing of the M-Pesa deposit callback reconciliation bug fix. Built /app/backend/tests/test_mpesa_reconciliation.py with 8 pytest tests covering reconciliation of prematurely-failed txns, idempotency, cancel-callback safety on completed txns, deposit-status poll behaviour for young pending txns, happy-path and failure-path, admin financials, and the historical stuck KSh 20 record. All 8 tests pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_mpesa_reconciliation.py",
+    "/app/test_reports/pytest/mpesa_reconciliation.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~4700 lines — should be split into routers (auth, wallet, mpesa, bookings, admin) for maintainability.",
+    "Callback endpoint correctly keys idempotency off mpesa_receipt presence (server.py:1436) — good; also uses a conditional $set with mpesa_receipt:{$in:[None,'',False]} to atomically avoid double-credit under concurrent callbacks.",
+    "The reconciliation code path credits the wallet AFTER writing the ledger entry via create_ledger_entry. create_ledger_entry reads current wallet_balance to compute balance_after, but the $inc happens right after, so balance_after in the ledger row reflects PRE-increment balance. Cosmetic — value in doc is called balance_after but is actually pre-inc. Consider $inc first, then ledger entry, or read balance after $inc.",
+    "/wallet/deposit/status swallows all exceptions from query_stk_status with a bare `except Exception: pass`. Fine for best-effort but log at warning level for observability.",
+    "Callback endpoint returns 200 even on invalid secret (good — prevents Safaricom probing), but also logs a warning — consider metrics/alert on repeated bad-secret hits."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_mpesa_reconciliation.py"
+  ],
+  "success_rate": {"backend": "100% (8/8)", "frontend": "not tested (backend only)"},
+  "test_credentials": "admin@kazilinks.com / admin123 (verified working)",
+  "seed_data_creation": "Seeded ephemeral TEST_ wallet_transactions docs per test (checkout_request_id prefixed 'TEST_CO_'). All cleaned up in each test's teardown, and any wallet balance mutations reversed via compensating $inc. No production data touched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "M-Pesa callback fix is fully covered. Historical stuck KSh 20 (user 06ff4307-b702-45db-a32f-d0dbae46dd57, checkout ws_CO_07072026083332628745576048, receipt UG768AP82F) verified reconciled in DB and admin stats reflect it. B2C withdrawal ResultCode 21 is a Daraja portal permissions issue — NOT tested here (out of scope per request).",
+  "rca of the issue": "Original bug: /wallet/deposit/status poll called STK Query which returned a stale/incorrect code and marked wallet_transactions.status='failed' before the real success callback arrived. Callback handler previously short-circuited on status!='pending', ignoring authoritative success. Fix now (a) callback idempotency keys off mpesa_receipt presence, (b) success callback unsets failure_* fields and credits wallet, writing ledger metadata.reconciled_from_failed=true, (c) poll only marks failed on definitive user-cancel code 1032, (d) same revive-on-success pattern applied to booking escrow branch. Verified end-to-end via 8 pytest tests."
+}

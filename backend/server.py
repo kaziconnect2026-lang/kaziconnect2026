@@ -1101,26 +1101,31 @@ async def get_deposit_status(checkout_request_id: str, user = Depends(get_curren
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
 
-    # If still pending and older than ~10s, query Safaricom directly as fallback
+    # If still pending and older than ~30s, query Safaricom directly as a UX hint —
+    # but only mark failed for DEFINITIVE user cancellations (1032). Timeouts / other codes
+    # can be transient; the callback is the authoritative source of truth so we leave
+    # ambiguous cases alone rather than prematurely marking them failed and later ignoring
+    # a real success callback.
     if txn.get("status") == "pending":
         try:
             created_at = datetime.fromisoformat(txn["created_at"])
-            if datetime.now(timezone.utc) - created_at > timedelta(seconds=10):
+            if datetime.now(timezone.utc) - created_at > timedelta(seconds=30):
                 query_resp = await mpesa_service.query_stk_status(checkout_request_id)
-                # Result codes: "0" success, "1032" cancelled, "1037" timeout, "1" insufficient funds, etc.
                 result_code = query_resp.get("ResultCode")
-                if result_code is not None and str(result_code) != "0" and str(result_code) != "1037":
-                    # Mark as failed if Safaricom says it definitively failed (not still in progress)
-                    if str(result_code) not in ["1037", ""]:
-                        await db.wallet_transactions.update_one(
-                            {"checkout_request_id": checkout_request_id, "status": "pending"},
-                            {"$set": {
-                                "status": "failed",
-                                "failure_code": str(result_code),
-                                "failure_reason": query_resp.get("ResultDesc"),
-                                "failed_at": datetime.now(timezone.utc).isoformat(),
-                            }},
-                        )
+                if str(result_code) == "1032":
+                    await db.wallet_transactions.update_one(
+                        {
+                            "checkout_request_id": checkout_request_id,
+                            "status": "pending",
+                            "mpesa_receipt": {"$in": [None, "", False]},
+                        },
+                        {"$set": {
+                            "status": "failed",
+                            "failure_code": str(result_code),
+                            "failure_reason": query_resp.get("ResultDesc"),
+                            "failed_at": datetime.now(timezone.utc).isoformat(),
+                        }},
+                    )
         except Exception:
             pass  # Polling fallback is best-effort
 
@@ -1338,12 +1343,15 @@ async def mpesa_callback(secret: str, request: Request):
     # Next, check if this is a BOOKING-ESCROW top-up rather than a plain wallet deposit
     payment_doc = await db.payments.find_one({"checkout_request_id": checkout_request_id})
     if payment_doc:
-        # Idempotency
-        if payment_doc.get("status") != "awaiting_topup":
+        # Idempotency guard uses mpesa_receipt / already-in-escrow, not raw status,
+        # so a premature "failed" set by client-side polling can still be reconciled
+        # when the definitive success callback lands.
+        if payment_doc.get("mpesa_receipt") or payment_doc.get("status") == PaymentStatus.ESCROW.value:
             return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
         if parsed.get("result_code") == 0:
-            # Success: payment now fully held in escrow
+            # Success: payment now fully held in escrow (overrides prior premature failure)
+            was_failed = payment_doc.get("status") == "failed"
             await db.payments.update_one(
                 {"id": payment_doc["id"]},
                 {"$set": {
@@ -1352,9 +1360,22 @@ async def mpesa_callback(secret: str, request: Request):
                     "mpesa_transaction_id": parsed.get("mpesa_receipt") or payment_doc.get("mpesa_transaction_id"),
                     "mpesa_transaction_date": parsed.get("transaction_date"),
                     "topup_completed_at": datetime.now(timezone.utc).isoformat(),
+                }, "$unset": {
+                    "failure_code": "",
+                    "failure_reason": "",
+                    "failed_at": "",
                 }},
             )
             topup_amount = float(payment_doc.get("topup_required") or 0)
+            # If we prematurely refunded the wallet portion on a failure that turned out
+            # to be a real success, deduct it back now to keep the ledger consistent.
+            if was_failed:
+                wallet_used = float(payment_doc.get("wallet_used") or 0)
+                if wallet_used > 0:
+                    await db.users.update_one(
+                        {"id": payment_doc["client_id"]},
+                        {"$inc": {"wallet_balance": -wallet_used}},
+                    )
             await create_ledger_entry(
                 entry_type=LedgerEntryType.ESCROW_IN,
                 user_id=payment_doc["client_id"],
@@ -1369,32 +1390,38 @@ async def mpesa_callback(secret: str, request: Request):
                     "mpesa_receipt": parsed.get("mpesa_receipt"),
                     "checkout_request_id": checkout_request_id,
                     "topup_amount": topup_amount,
+                    "reconciled_from_failed": was_failed,
                 },
             )
             await db.bookings.update_one(
                 {"id": payment_doc["booking_id"]},
                 {"$set": {"status": BookingStatus.CONFIRMED.value}},
             )
-            logger.info("Booking escrow funded: %s KSh %s", checkout_request_id, topup_amount)
+            if was_failed:
+                logger.info("Booking escrow RECONCILED from failed: %s KSh %s receipt %s",
+                            checkout_request_id, topup_amount, parsed.get("mpesa_receipt"))
+            else:
+                logger.info("Booking escrow funded: %s KSh %s", checkout_request_id, topup_amount)
         else:
-            # Failure: refund wallet portion + mark payment failed
-            wallet_used = float(payment_doc.get("wallet_used") or 0)
-            if wallet_used > 0:
-                await db.users.update_one(
-                    {"id": payment_doc["client_id"]},
-                    {"$inc": {"wallet_balance": wallet_used}},
+            # Failure: refund wallet portion + mark payment failed — only if not yet receipted.
+            if payment_doc.get("status") == "awaiting_topup":
+                wallet_used = float(payment_doc.get("wallet_used") or 0)
+                if wallet_used > 0:
+                    await db.users.update_one(
+                        {"id": payment_doc["client_id"]},
+                        {"$inc": {"wallet_balance": wallet_used}},
+                    )
+                await db.payments.update_one(
+                    {"id": payment_doc["id"], "status": "awaiting_topup"},
+                    {"$set": {
+                        "status": "failed",
+                        "failure_code": str(parsed.get("result_code")),
+                        "failure_reason": parsed.get("result_desc"),
+                        "failed_at": datetime.now(timezone.utc).isoformat(),
+                    }},
                 )
-            await db.payments.update_one(
-                {"id": payment_doc["id"]},
-                {"$set": {
-                    "status": "failed",
-                    "failure_code": str(parsed.get("result_code")),
-                    "failure_reason": parsed.get("result_desc"),
-                    "failed_at": datetime.now(timezone.utc).isoformat(),
-                }},
-            )
-            logger.info("Booking escrow top-up failed: %s — %s; refunded wallet KSh %s",
-                        checkout_request_id, parsed.get("result_desc"), wallet_used)
+                logger.info("Booking escrow top-up failed: %s — %s; refunded wallet KSh %s",
+                            checkout_request_id, parsed.get("result_desc"), wallet_used)
         return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
     # Otherwise this is a plain wallet deposit — original flow
@@ -1402,21 +1429,32 @@ async def mpesa_callback(secret: str, request: Request):
     if not txn:
         logger.warning("M-Pesa callback for unknown CheckoutRequestID: %s", checkout_request_id)
         return {"ResultCode": 0, "ResultDesc": "Accepted"}
-    if txn.get("status") != "pending":
-        logger.info("M-Pesa callback already processed for %s", checkout_request_id)
+
+    # Idempotency guard: use the presence of mpesa_receipt as the "already credited" flag,
+    # NOT the txn status. Otherwise a premature failure marked by the STK-status poll can
+    # cause the real success callback to be ignored, leaving the user out of pocket.
+    if txn.get("mpesa_receipt"):
+        logger.info("M-Pesa callback already credited (receipt %s) for %s",
+                    txn.get("mpesa_receipt"), checkout_request_id)
         return {"ResultCode": 0, "ResultDesc": "Accepted"}
 
     if parsed.get("result_code") == 0:
-        # Success path
+        # Success path. Overrides any prior premature "failed" state because Safaricom
+        # took the customer's money and gave us a real receipt — this is authoritative.
         confirmed_amount = parsed.get("amount") or txn["amount"]
+        was_failed = txn.get("status") == "failed"
         await db.wallet_transactions.update_one(
-            {"checkout_request_id": checkout_request_id, "status": "pending"},
+            {"checkout_request_id": checkout_request_id, "mpesa_receipt": {"$in": [None, "", False]}},
             {"$set": {
                 "status": "completed",
                 "amount": confirmed_amount,
                 "mpesa_receipt": parsed.get("mpesa_receipt"),
                 "mpesa_transaction_date": parsed.get("transaction_date"),
                 "completed_at": datetime.now(timezone.utc).isoformat(),
+            }, "$unset": {
+                "failure_code": "",
+                "failure_reason": "",
+                "failed_at": "",
             }},
         )
 
@@ -1432,6 +1470,7 @@ async def mpesa_callback(secret: str, request: Request):
                 "phone_number": txn.get("phone_number"),
                 "mpesa_receipt": parsed.get("mpesa_receipt"),
                 "checkout_request_id": checkout_request_id,
+                "reconciled_from_failed": was_failed,
             },
         )
 
@@ -1439,11 +1478,19 @@ async def mpesa_callback(secret: str, request: Request):
             {"id": txn["user_id"]},
             {"$inc": {"wallet_balance": confirmed_amount}},
         )
-        logger.info("M-Pesa deposit completed: %s KSh %s", checkout_request_id, confirmed_amount)
+        if was_failed:
+            logger.info("M-Pesa deposit RECONCILED (was prematurely failed): %s KSh %s receipt %s",
+                        checkout_request_id, confirmed_amount, parsed.get("mpesa_receipt"))
+        else:
+            logger.info("M-Pesa deposit completed: %s KSh %s", checkout_request_id, confirmed_amount)
     else:
-        # Failure / cancellation path
+        # Failure / cancellation path — only mark failed if we haven't already credited.
+        # Never overwrite a completed / receipted transaction.
         await db.wallet_transactions.update_one(
-            {"checkout_request_id": checkout_request_id, "status": "pending"},
+            {
+                "checkout_request_id": checkout_request_id,
+                "mpesa_receipt": {"$in": [None, "", False]},
+            },
             {"$set": {
                 "status": "failed",
                 "failure_code": str(parsed.get("result_code")),
