@@ -149,16 +149,27 @@ export default function AdminDashboard() {
             </div>
             <span className="font-heading font-bold">Admin Panel</span>
           </div>
-          <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2">
-            {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-1.5 px-3 h-9 rounded-lg text-destructive hover:bg-destructive/10 transition-colors"
+              aria-label="Log out"
+              data-testid="mobile-header-logout-btn"
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="text-sm font-medium">Log out</span>
+            </button>
+            <button onClick={() => setMobileMenuOpen(!mobileMenuOpen)} className="p-2" data-testid="mobile-menu-toggle">
+              {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
+            </button>
+          </div>
         </div>
       </header>
 
       {/* Mobile Menu */}
       {mobileMenuOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 bg-background pt-16">
-          <nav className="p-4 space-y-2">
+        <div className="lg:hidden fixed inset-0 z-40 bg-background pt-16 overflow-y-auto">
+          <nav className="p-4 space-y-2 pb-24">
             <button onClick={() => { setActiveTab("overview"); setMobileMenuOpen(false); }} className={`w-full flex items-center gap-3 p-3 rounded-xl ${activeTab === "overview" ? "bg-primary/10 text-primary" : "hover:bg-muted"}`}>
               <Home className="w-5 h-5" />
               <span>Overview</span>
@@ -208,7 +219,7 @@ export default function AdminDashboard() {
               </button>
             </div>
 
-            <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-destructive/10 text-destructive mt-2">
+            <button onClick={handleLogout} className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-destructive/10 text-destructive mt-2" data-testid="mobile-logout-btn">
               <LogOut className="w-5 h-5" />
               <span>Log out</span>
             </button>
@@ -218,7 +229,7 @@ export default function AdminDashboard() {
 
       <div className="flex">
         {/* Desktop Sidebar */}
-        <aside className="hidden lg:flex flex-col w-64 min-h-screen bg-card border-r border-border p-6">
+        <aside className="hidden lg:flex flex-col w-64 lg:sticky lg:top-0 lg:h-screen bg-card border-r border-border p-6 overflow-y-auto">
           <div className="flex items-center gap-2 mb-8">
             <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center">
               <Shield className="w-5 h-5 text-white" />
