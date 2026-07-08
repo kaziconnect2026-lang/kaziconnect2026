@@ -1,0 +1,38 @@
+{
+  "summary": "Tested ledger endpoint stability and admin password-change UX end-to-end. Backend: 8/9 tests passed (1 unrelated: /admin/dashboard-charts endpoint does not exist — actual is /admin/dashboard). Frontend: /admin/ledger loads with all 6 summary cards (Deposits/Withdrawals/Escrow In/Escrow Out/Platform Fees/Pro Payouts) and 112 entries, no 'cannot load' error. Password change flow works: current input toggle switches password->text, submit shows success toast 'Password updated. Use it the next time you log in.', form resets, re-login with newAdmin123 succeeded, then reverted to admin123. Bad-doc regression: seeded ledger doc missing entry_type — endpoint still returned 200 (hardening confirmed).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/dashboard-charts", "issue": "Endpoint not implemented (returns 404). Review request specified this endpoint but actual route is /api/admin/dashboard. Non-blocking; likely a spec typo in the review request."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin/ledger", "issues": ["Missing data-testid attributes: 'ledger-summary' (6 summary cards) and 'ledger-entries-table' (transactions table) — page-level testid 'ledger-page' exists. Recommend adding for future automated tests."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_ledger_password.py",
+    "/app/test_reports/pytest/iter11_ledger_pwd.xml"
+  ],
+  "action_items": [
+    "Optional: add data-testid='ledger-summary' to the summary cards container and data-testid='ledger-entries-table' to the transactions table on the Admin Ledger page.",
+    "Optional: clarify whether /api/admin/dashboard-charts should exist or if the review request should reference /api/admin/dashboard."
+  ],
+  "critical_code_review_comments": [
+    "Ledger endpoint hardening with .get('entry_type') and .get('amount') is correct and verified by the bad-doc regression test.",
+    "Password change endpoint properly validates: 401 on wrong current, 400 on <8 chars, 400 on new==current — all three negative cases pass."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_ledger_password.py (new)"
+  ],
+  "success_rate": {"backend": "89% (8/9)", "frontend": "100%"},
+  "test_credentials": "admin@kazilinks.com / admin123 (restored after test)",
+  "seed_data_creation": "TEST_BAD_DOC_KYC ledger doc seeded and deleted in single test (test_bad_doc_regression). No residual data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Ledger 500 bug fully fixed. Password change UX with Eye/EyeOff icons confirmed working. Admin password reset to admin123 after test. The one failed backend test is about /api/admin/dashboard-charts which does not exist in server.py — the actual admin dashboard endpoint is /api/admin/dashboard.",
+  "rca of the issue": "Ledger 500: root cause (bad doc with 'type' key instead of 'entry_type') confirmed mitigated via both migration + .get() hardening. Password change 'not working' was UX confusion from wrong icons (ShieldCheck/XCircle); now Eye/EyeOff — verified visually and functionally."
+}

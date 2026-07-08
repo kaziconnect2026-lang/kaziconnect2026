@@ -3906,24 +3906,31 @@ async def get_ledger(
             entry["related_user_name"] = ru["name"] if ru else "Unknown"
             entry["related_user_display_id"] = ru.get("display_id") if ru else None
     
-    # Calculate summary stats
+    # Calculate summary stats — use .get() everywhere so any legacy doc with
+    # missing fields (e.g. old manual reconciliation entries) doesn't 500 the endpoint.
     all_entries = await db.ledger.find({}, {"_id": 0}).to_list(10000)
-    
+
+    def _sum(entry_type):
+        return sum(float(e.get("amount") or 0) for e in all_entries if e.get("entry_type") == entry_type)
+
+    def _count(entry_type):
+        return sum(1 for e in all_entries if e.get("entry_type") == entry_type)
+
     summary = {
-        "total_deposits": sum(e["amount"] for e in all_entries if e["entry_type"] == "deposit"),
-        "total_withdrawals": sum(e["amount"] for e in all_entries if e["entry_type"] == "withdrawal"),
-        "total_escrow_in": sum(e["amount"] for e in all_entries if e["entry_type"] == "escrow_in"),
-        "total_escrow_out": sum(e["amount"] for e in all_entries if e["entry_type"] == "escrow_out"),
-        "total_platform_fees": sum(e["amount"] for e in all_entries if e["entry_type"] == "platform_fee"),
-        "total_professional_payouts": sum(e["amount"] for e in all_entries if e["entry_type"] == "professional_payout"),
+        "total_deposits": _sum("deposit"),
+        "total_withdrawals": _sum("withdrawal"),
+        "total_escrow_in": _sum("escrow_in"),
+        "total_escrow_out": _sum("escrow_out"),
+        "total_platform_fees": _sum("platform_fee"),
+        "total_professional_payouts": _sum("professional_payout"),
         "entry_counts": {
-            "deposit": len([e for e in all_entries if e["entry_type"] == "deposit"]),
-            "withdrawal": len([e for e in all_entries if e["entry_type"] == "withdrawal"]),
-            "escrow_in": len([e for e in all_entries if e["entry_type"] == "escrow_in"]),
-            "escrow_out": len([e for e in all_entries if e["entry_type"] == "escrow_out"]),
-            "platform_fee": len([e for e in all_entries if e["entry_type"] == "platform_fee"]),
-            "professional_payout": len([e for e in all_entries if e["entry_type"] == "professional_payout"])
-        }
+            "deposit": _count("deposit"),
+            "withdrawal": _count("withdrawal"),
+            "escrow_in": _count("escrow_in"),
+            "escrow_out": _count("escrow_out"),
+            "platform_fee": _count("platform_fee"),
+            "professional_payout": _count("professional_payout"),
+        },
     }
     
     return {

@@ -14,7 +14,8 @@ import {
   Home, Users, Briefcase, DollarSign, Star, TrendingUp, 
   Calendar, LogOut, Menu, X, BarChart3, PieChart, Activity,
   ArrowUpRight, ArrowDownRight, Search, Filter, CheckCircle2,
-  Clock, XCircle, Wallet, Bell, Shield, ChevronRight, FileText, MessageCircle, Receipt, ShieldCheck
+  Clock, XCircle, Wallet, Bell, Shield, ChevronRight, FileText, MessageCircle, Receipt, ShieldCheck,
+  Eye, EyeOff
 } from "lucide-react";
 
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
@@ -1127,7 +1128,7 @@ function AdminPasswordField({ id, label, value, onChange, visible, toggle, testI
           data-testid={`${testId}-toggle`}
           aria-label={visible ? "Hide password" : "Show password"}
         >
-          {visible ? <XCircle className="w-4 h-4" /> : <ShieldCheck className="w-4 h-4" />}
+          {visible ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
         </button>
       </div>
     </div>
